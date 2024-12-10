@@ -3,6 +3,7 @@ from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 from PySide6.QtCore import Qt, QTimer, Signal, QThread
 from PySide6.QtGui import QMouseEvent
 from threading import Thread
+from time import sleep
 import sys
 import psutil
 import win32gui
@@ -14,6 +15,25 @@ def CPU_stats_updater(data_storage: dict):
         data_storage['cpu_percent'] = cpu_percent
         # no sleep() needed here as cpu_percent() already takes up 0.5s
 
+def network_speed_updater(data_storage: dict):
+    sampling_interval_s = 0.75
+    while True:
+        initial_stats = psutil.net_io_counters()
+        initial_bytes_sent = initial_stats.bytes_sent
+        initial_bytes_recv = initial_stats.bytes_recv
+
+        sleep(sampling_interval_s)
+
+        final_stats = psutil.net_io_counters()
+        final_bytes_sent = final_stats.bytes_sent
+        final_bytes_recv = final_stats.bytes_recv
+
+        download_speed_MB = (final_bytes_recv - initial_bytes_recv) / sampling_interval_s / 1024**2
+        upload_speed_MB = (final_bytes_sent - initial_bytes_sent) / sampling_interval_s / 1024**2
+
+        data_storage |= {'download_speed_MB': round(download_speed_MB,3),
+                         'upload_speed_MB': round(upload_speed_MB,3)}
+
 # Worker thread to update stats
 class StatsUpdater(QThread):
     stats_updated = Signal(list)  # Signal to send updated stats to the main thread
@@ -22,20 +42,22 @@ class StatsUpdater(QThread):
         super().__init__()
 
         self.cpu_stats = {'cpu_percent': 0}
-        t = Thread(target=CPU_stats_updater, args=(self.cpu_stats,))
-        t.start()
+        t_CPU = Thread(target=CPU_stats_updater, args=(self.cpu_stats,))
+        t_CPU.start()
+
+        self.network_stats = {'download_speed_MB': 0.000,
+                              'upload_speed_MB': 0.000}
+        t_network = Thread(target=network_speed_updater, args=(self.network_stats,))
+        t_network.start()
 
     def run(self):
         while True:
             ram_usage = psutil.virtual_memory().used / (1024 ** 3)  # in GB
             ram_total = psutil.virtual_memory().total / (1024 ** 3)  # in GB
-            net_io = psutil.net_io_counters()
-            sent_GB = f"{net_io.bytes_sent / (1024 ** 3):.2f}"
-            received_GB = f"{net_io.bytes_recv / (1024 ** 3):.2f}"
 
             # Collect all the data points in a list
             rows = [[f"CPU: {self.cpu_stats['cpu_percent']}%", f"RAM: {ram_usage:.2f} GB / {ram_total:.2f} GB", 'TBA'],
-                    ['TBA', f"Network: {sent_GB}GB Sent/ {received_GB}GB Received", 'TBA']]
+                    ['TBA', f"Network: {self.network_stats['download_speed_MB']}MB Down/ {self.network_stats['upload_speed_MB']}MB Up", 'TBA']]
 
             # Emit formatted data
             self.stats_updated.emit(rows)  # Emit signal with formatted rows
