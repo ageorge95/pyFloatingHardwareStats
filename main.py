@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QFrame
 from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 from PySide6.QtCore import Qt, QTimer, Signal, QThread
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtGui import QMouseEvent, QColor, QFont
 from threading import Thread
 from time import sleep
 import sys
@@ -9,6 +9,21 @@ import psutil
 import win32gui
 import win32con
 import wmi
+
+def value_to_rgb_to_QTableWidgetItem(value, min_value, max_value):
+    # Function that returns a QTableWidgetItem used to color the table cells in a certain manner
+    # Ensure value is within the range [min_value, max_value]
+    value = max(min(value, max_value), min_value)
+
+    # Calculate the ratio of the value within the range
+    ratio = (value - min_value) / (max_value - min_value)
+
+    # Interpolate between green (0, 255, 0) and red (255, 0, 0)
+    red = int(ratio * 255)  # Red increases as the value increases
+    green = int((1 - ratio) * 255)  # Green decreases as the value increases
+
+    # return the RGB value
+    return (red, green, 0)
 
 def CPU_usage_updater(data_storage: dict):
     while True:
@@ -63,7 +78,7 @@ def libre_hw_mon_updater(data_storage: dict):
 
 # Worker thread to update stats
 class StatsUpdater(QThread):
-    stats_updated = Signal(list)  # Signal to send updated stats to the main thread
+    stats_updated = Signal(list, list)  # Signal to send updated stats to the main thread
 
     def __init__(self):
         super().__init__()
@@ -95,8 +110,13 @@ class StatsUpdater(QThread):
                     [f"CPU[C]: {self.libre_hw_mon['CPU_temp']}C",
                      f"Network: {self.network_stats['download_speed_MB']}MB Down/ {self.network_stats['upload_speed_MB']}MB Up"]]
 
+            colors = [[value_to_rgb_to_QTableWidgetItem(self.cpu_usage['cpu_percent'],0,100),
+                       value_to_rgb_to_QTableWidgetItem(self.RAM_stats['ram_usage'],0,self.RAM_stats['ram_total'])],
+                      [value_to_rgb_to_QTableWidgetItem(self.libre_hw_mon['CPU_temp'], 40, 90),
+                       (255,255,255)]]
+
             # Emit formatted data
-            self.stats_updated.emit(rows)  # Emit signal with formatted rows
+            self.stats_updated.emit(rows, colors)  # Emit signal with formatted rows and their colors
             self.msleep(500)  # Sleep for 500ms before updating again
 
 class DraggableWindow(QWidget):
@@ -105,7 +125,7 @@ class DraggableWindow(QWidget):
 
         # Set up the window properties
         self.setWindowTitle("System Stats")
-        self.setGeometry(100, 100, 310, 30)  # Initial position and size
+        self.setGeometry(100, 100, 325, 30)  # Initial position and size
         self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)  # Always on top, no frame
         self.setStyleSheet("background-color: rgba(255, 255, 255, 220);")  # Light transparent background
 
@@ -126,16 +146,19 @@ class DraggableWindow(QWidget):
         self.table_widget = QTableWidget(self)
         self.table_widget.setRowCount(2)  # Initially setting 2 rows
         self.table_widget.setColumnCount(2)  # 3 columns per row
+        font = QFont()
+        font.setBold(True)
+        self.table_widget.setFont(font) # set the default bold text
         # Remove headers
         self.table_widget.horizontalHeader().setVisible(False)
         self.table_widget.verticalHeader().setVisible(False)
         # Set all columns and rows to be compact
         self.table_widget.setSizeAdjustPolicy(QTableWidget.AdjustToContents)
-        self.table_widget.setColumnWidth(0, 85)
-        self.table_widget.setColumnWidth(1, 220)
-        self.table_widget.setColumnWidth(2, 80)
+        self.table_widget.setColumnWidth(0, 90) # adjust the rows width
+        self.table_widget.setColumnWidth(1, 230)
         self.table_widget.setRowHeight(0, 1)  # Adjust the height of each row
         self.table_widget.setRowHeight(1, 1)
+        # set all items to have the bold font
         layout.addWidget(self.table_widget)
 
         # Timer to keep the window always on top
@@ -157,7 +180,7 @@ class DraggableWindow(QWidget):
         self.stats_updater.stats_updated.connect(self.update_table)
         self.stats_updater.start()
 
-    def update_table(self, rows):
+    def update_table(self, rows, colors):
         # Clear the table before updating
         self.table_widget.clearContents()
 
@@ -165,9 +188,10 @@ class DraggableWindow(QWidget):
         row_count = len(rows)
         self.table_widget.setRowCount(row_count)
 
-        for row_idx, row in enumerate(rows):
-            for col_idx, cell_data in enumerate(row):
+        for (row_idx, row), (_, color) in zip(enumerate(rows), enumerate(colors)):
+            for (col_idx, cell_data), (_, color) in zip(enumerate(row), enumerate(color)):
                 item = QTableWidgetItem(cell_data)
+                item.setBackground(QColor(*color))
                 self.table_widget.setItem(row_idx, col_idx, item)
 
     def start_drag(self, event: QMouseEvent):
