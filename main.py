@@ -1,20 +1,32 @@
-import sys
-import psutil
 from PySide6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QFrame
 from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 from PySide6.QtCore import Qt, QTimer, Signal, QThread
 from PySide6.QtGui import QMouseEvent
+from threading import Thread
+import sys
+import psutil
 import win32gui
 import win32con
-from tabulate import tabulate
+
+def CPU_stats_updater(data_storage: dict):
+    while True:
+        cpu_percent = psutil.cpu_percent(interval=0.5)
+        data_storage['cpu_percent'] = cpu_percent
+        # no sleep() needed here as cpu_percent() already takes up 0.5s
 
 # Worker thread to update stats
 class StatsUpdater(QThread):
     stats_updated = Signal(list)  # Signal to send updated stats to the main thread
 
+    def __init__(self):
+        super().__init__()
+
+        self.cpu_stats = {'cpu_percent': 0}
+        t = Thread(target=CPU_stats_updater, args=(self.cpu_stats,))
+        t.start()
+
     def run(self):
         while True:
-            cpu_percent = psutil.cpu_percent(interval=0.5)
             ram_usage = psutil.virtual_memory().used / (1024 ** 3)  # in GB
             ram_total = psutil.virtual_memory().total / (1024 ** 3)  # in GB
             net_io = psutil.net_io_counters()
@@ -22,15 +34,14 @@ class StatsUpdater(QThread):
             received_GB = f"{net_io.bytes_recv / (1024 ** 3):.2f}"
 
             # Collect all the data points in a list
-            rows = [[f"CPU: {cpu_percent}%", f"RAM: {ram_usage:.2f} GB / {ram_total:.2f} GB", 'TBA'],
+            rows = [[f"CPU: {self.cpu_stats['cpu_percent']}%", f"RAM: {ram_usage:.2f} GB / {ram_total:.2f} GB", 'TBA'],
                     ['TBA', f"Network: {sent_GB}GB Sent/ {received_GB}GB Received", 'TBA']]
 
             # Emit formatted data
             self.stats_updated.emit(rows)  # Emit signal with formatted rows
             self.msleep(500)  # Sleep for 500ms before updating again
 
-            print('called')
-
+            print('Statistics updated')
 
 class DraggableWindow(QWidget):
     def __init__(self):
