@@ -1,3 +1,4 @@
 title pyFloatingHardwareStats GUI
 call activate.bat
-start main.py
+start python main.py
+pause
