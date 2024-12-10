@@ -8,8 +8,9 @@ import sys
 import psutil
 import win32gui
 import win32con
+import wmi
 
-def CPU_stats_updater(data_storage: dict):
+def CPU_usage_updater(data_storage: dict):
     while True:
         cpu_percent = psutil.cpu_percent(interval=0.5)
         data_storage['cpu_percent'] = cpu_percent
@@ -44,6 +45,20 @@ def RAM_stats_updater(data_storage: dict):
                          'ram_total': round(ram_total,2)}
         sleep(0.5)
 
+def libre_hw_mon_updater(data_storage: dict):
+    while True:
+        try:
+            # Connect to LibreHardwareMonitor's WMI namespace
+            w = wmi.WMI(namespace="root\\LibreHardwareMonitor")
+            query = 'SELECT Value FROM Sensor WHERE SensorType="Temperature" AND Name="CPU Package"'
+            results = w.query(query)
+            data_storage |= {'CPU_temp': results[0].Value}
+
+        except Exception as e:
+            data_storage |= {'CPU_temp': 0}
+
+        sleep(0.25)
+
 # Worker thread to update stats
 class StatsUpdater(QThread):
     stats_updated = Signal(list)  # Signal to send updated stats to the main thread
@@ -51,8 +66,8 @@ class StatsUpdater(QThread):
     def __init__(self):
         super().__init__()
 
-        self.cpu_stats = {'cpu_percent': 0}
-        t_CPU = Thread(target=CPU_stats_updater, args=(self.cpu_stats,))
+        self.cpu_usage = {'cpu_percent': 0}
+        t_CPU = Thread(target=CPU_usage_updater, args=(self.cpu_usage,))
         t_CPU.start()
 
         self.network_stats = {'download_speed_MB': 0.000,
@@ -65,12 +80,20 @@ class StatsUpdater(QThread):
         t_RAM = Thread(target=RAM_stats_updater, args=(self.RAM_stats,))
         t_RAM.start()
 
+        self.libre_hw_mon = {'CPU_temp': 0}
+        t_libre_hw_mon = Thread(target=libre_hw_mon_updater, args=(self.libre_hw_mon,))
+        t_libre_hw_mon.start()
+
     def run(self):
         while True:
 
             # Collect all the data points in a list
-            rows = [[f"CPU: {self.cpu_stats['cpu_percent']}%", f"RAM: {self.RAM_stats['ram_usage']} GB / {self.RAM_stats['ram_total']} GB", 'TBA'],
-                    ['TBA', f"Network: {self.network_stats['download_speed_MB']}MB Down/ {self.network_stats['upload_speed_MB']}MB Up", 'TBA']]
+            rows = [[f"CPU[%]: {self.cpu_usage['cpu_percent']}%",
+                     f"RAM: {self.RAM_stats['ram_usage']} GB / {self.RAM_stats['ram_total']} GB",
+                     'TBA'],
+                    [f"CPU[C]: {self.libre_hw_mon['CPU_temp']}C",
+                     f"Network: {self.network_stats['download_speed_MB']}MB Down/ {self.network_stats['upload_speed_MB']}MB Up",
+                     'TBA']]
 
             # Emit formatted data
             self.stats_updated.emit(rows)  # Emit signal with formatted rows
@@ -110,7 +133,7 @@ class DraggableWindow(QWidget):
         self.table_widget.verticalHeader().setVisible(False)
         # Set all columns and rows to be compact
         self.table_widget.setSizeAdjustPolicy(QTableWidget.AdjustToContents)
-        self.table_widget.setColumnWidth(0, 70)
+        self.table_widget.setColumnWidth(0, 85)
         self.table_widget.setColumnWidth(1, 220)
         self.table_widget.setColumnWidth(2, 80)
         self.table_widget.setRowHeight(0, 1)  # Adjust the height of each row
