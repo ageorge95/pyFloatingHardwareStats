@@ -34,6 +34,16 @@ def network_speed_updater(data_storage: dict):
         data_storage |= {'download_speed_MB': round(download_speed_MB,3),
                          'upload_speed_MB': round(upload_speed_MB,3)}
 
+        # no sleep() needed here as cpu_percent() already takes up sampling_interval_s
+
+def RAM_stats_updater(data_storage: dict):
+    while True:
+        ram_usage = psutil.virtual_memory().used / (1024 ** 3)  # in GB
+        ram_total = psutil.virtual_memory().total / (1024 ** 3)  # in GB
+        data_storage |= {'ram_usage': round(ram_usage,2),
+                         'ram_total': round(ram_total,2)}
+        sleep(0.5)
+
 # Worker thread to update stats
 class StatsUpdater(QThread):
     stats_updated = Signal(list)  # Signal to send updated stats to the main thread
@@ -50,13 +60,16 @@ class StatsUpdater(QThread):
         t_network = Thread(target=network_speed_updater, args=(self.network_stats,))
         t_network.start()
 
+        self.RAM_stats = {'ram_usage': 0,
+                          'ram_total': 0}
+        t_RAM = Thread(target=RAM_stats_updater, args=(self.RAM_stats,))
+        t_RAM.start()
+
     def run(self):
         while True:
-            ram_usage = psutil.virtual_memory().used / (1024 ** 3)  # in GB
-            ram_total = psutil.virtual_memory().total / (1024 ** 3)  # in GB
 
             # Collect all the data points in a list
-            rows = [[f"CPU: {self.cpu_stats['cpu_percent']}%", f"RAM: {ram_usage:.2f} GB / {ram_total:.2f} GB", 'TBA'],
+            rows = [[f"CPU: {self.cpu_stats['cpu_percent']}%", f"RAM: {self.RAM_stats['ram_usage']} GB / {self.RAM_stats['ram_total']} GB", 'TBA'],
                     ['TBA', f"Network: {self.network_stats['download_speed_MB']}MB Down/ {self.network_stats['upload_speed_MB']}MB Up", 'TBA']]
 
             # Emit formatted data
