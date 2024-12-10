@@ -89,11 +89,9 @@ class StatsUpdater(QThread):
 
             # Collect all the data points in a list
             rows = [[f"CPU[%]: {self.cpu_usage['cpu_percent']}%",
-                     f"RAM: {self.RAM_stats['ram_usage']} GB / {self.RAM_stats['ram_total']} GB",
-                     'TBA'],
+                     f"RAM: {self.RAM_stats['ram_usage']} GB / {self.RAM_stats['ram_total']} GB"],
                     [f"CPU[C]: {self.libre_hw_mon['CPU_temp']}C",
-                     f"Network: {self.network_stats['download_speed_MB']}MB Down/ {self.network_stats['upload_speed_MB']}MB Up",
-                     'TBA']]
+                     f"Network: {self.network_stats['download_speed_MB']}MB Down/ {self.network_stats['upload_speed_MB']}MB Up"]]
 
             # Emit formatted data
             self.stats_updated.emit(rows)  # Emit signal with formatted rows
@@ -107,7 +105,7 @@ class DraggableWindow(QWidget):
 
         # Set up the window properties
         self.setWindowTitle("System Stats")
-        self.setGeometry(100, 100, 500, 30)  # Initial position and size
+        self.setGeometry(100, 100, 310, 30)  # Initial position and size
         self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)  # Always on top, no frame
         self.setStyleSheet("background-color: rgba(255, 255, 255, 220);")  # Light transparent background
 
@@ -127,7 +125,7 @@ class DraggableWindow(QWidget):
         # Create the QTableWidget (Excel-like grid)
         self.table_widget = QTableWidget(self)
         self.table_widget.setRowCount(2)  # Initially setting 2 rows
-        self.table_widget.setColumnCount(3)  # 3 columns per row
+        self.table_widget.setColumnCount(2)  # 3 columns per row
         # Remove headers
         self.table_widget.horizontalHeader().setVisible(False)
         self.table_widget.verticalHeader().setVisible(False)
