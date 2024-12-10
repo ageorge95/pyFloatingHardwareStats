@@ -14,6 +14,7 @@ def CPU_usage_updater(data_storage: dict):
     while True:
         cpu_percent = psutil.cpu_percent(interval=0.5)
         data_storage['cpu_percent'] = cpu_percent
+
         # no sleep() needed here as cpu_percent() already takes up 0.5s
 
 def network_speed_updater(data_storage: dict):
@@ -43,6 +44,7 @@ def RAM_stats_updater(data_storage: dict):
         ram_total = psutil.virtual_memory().total / (1024 ** 3)  # in GB
         data_storage |= {'ram_usage': round(ram_usage,2),
                          'ram_total': round(ram_total,2)}
+
         sleep(0.5)
 
 def libre_hw_mon_updater(data_storage: dict):
@@ -53,9 +55,9 @@ def libre_hw_mon_updater(data_storage: dict):
             query = 'SELECT Value FROM Sensor WHERE SensorType="Temperature" AND Name="CPU Package"'
             results = w.query(query)
             data_storage |= {'CPU_temp': results[0].Value}
-
         except Exception as e:
             data_storage |= {'CPU_temp': 0}
+            print('Querying LibreHardwareMonitor failed !')
 
         sleep(0.25)
 
@@ -96,8 +98,6 @@ class StatsUpdater(QThread):
             # Emit formatted data
             self.stats_updated.emit(rows)  # Emit signal with formatted rows
             self.msleep(500)  # Sleep for 500ms before updating again
-
-            print('Statistics updated')
 
 class DraggableWindow(QWidget):
     def __init__(self):
@@ -160,8 +160,6 @@ class DraggableWindow(QWidget):
     def update_table(self, rows):
         # Clear the table before updating
         self.table_widget.clearContents()
-
-        print(rows)
 
         # Update the table with new data
         row_count = len(rows)
