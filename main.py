@@ -128,6 +128,7 @@ class DraggableWindow(QWidget):
         self.setGeometry(100, 100, 325, 30)  # Initial position and size
         self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)  # Always on top, no frame
         self.setStyleSheet("background-color: rgba(255, 255, 255, 220);")  # Light transparent background
+        self.setWindowOpacity(0.8)  # 80% opaque
 
         # Create the layout
         layout = QVBoxLayout(self)
