@@ -1,4 +1,4 @@
-# pyRoboCopyGUI
+# pyFloatingHardwareStats
 Floating window GUI that displays various hardware statistics. Main features:
 - has a tiny grey area that can be used to drag the window wherever the user wants
 - spawns separate threads that take care of reading specific hardware statistics at pre-defined time intervals
