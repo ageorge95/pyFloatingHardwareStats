@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QFrame
 from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 from PySide6.QtCore import Qt, QTimer, Signal, QThread
-from PySide6.QtGui import QMouseEvent, QColor, QFont, QIcon
+from PySide6.QtGui import QMouseEvent, QColor, QFont, QIcon, QCloseEvent
 from threading import Thread
 from time import sleep
 import sys
@@ -27,7 +27,7 @@ def value_to_rgb_to_QTableWidgetItem(value, min_value, max_value):
     return (red, green, 0)
 
 def CPU_usage_updater(data_storage: dict):
-    while True:
+    while not os.path.isfile(get_running_path('exit')):
         cpu_percent = psutil.cpu_percent(interval=0.5)
         data_storage['cpu_percent'] = cpu_percent
 
@@ -35,7 +35,7 @@ def CPU_usage_updater(data_storage: dict):
 
 def network_speed_updater(data_storage: dict):
     sampling_interval_s = 0.75
-    while True:
+    while not os.path.isfile(get_running_path('exit')):
         initial_stats = psutil.net_io_counters()
         initial_bytes_sent = initial_stats.bytes_sent
         initial_bytes_recv = initial_stats.bytes_recv
@@ -55,7 +55,7 @@ def network_speed_updater(data_storage: dict):
         # no sleep() needed here as cpu_percent() already takes up sampling_interval_s
 
 def RAM_stats_updater(data_storage: dict):
-    while True:
+    while not os.path.isfile(get_running_path('exit')):
         ram_usage = psutil.virtual_memory().used / (1024 ** 3)  # in GB
         ram_total = psutil.virtual_memory().total / (1024 ** 3)  # in GB
         data_storage |= {'ram_usage': round(ram_usage,2),
@@ -64,7 +64,7 @@ def RAM_stats_updater(data_storage: dict):
         sleep(0.5)
 
 def libre_hw_mon_updater(data_storage: dict):
-    while True:
+    while not os.path.isfile(get_running_path('exit')):
         try:
             # Connect to LibreHardwareMonitor's WMI namespace
             w = wmi.WMI(namespace="root\\LibreHardwareMonitor")
@@ -103,7 +103,7 @@ class StatsUpdater(QThread):
         t_libre_hw_mon.start()
 
     def run(self):
-        while True:
+        while not os.path.isfile(get_running_path('exit')):
 
             # Collect all the data points in a list
             rows = [[f"CPU[%]: {self.cpu_usage['cpu_percent']}%",
@@ -129,6 +129,10 @@ def get_running_path(relative_path):
 class DraggableWindow(QWidget):
     def __init__(self):
         super().__init__()
+
+        # first clear the exit flag by removing the exit file if it exists
+        if os.path.isfile(get_running_path('exit')):
+            os.remove(get_running_path('exit'))
 
         # Set up the window properties
         self.setWindowTitle("System Stats v" + open(get_running_path('version.txt')).read())
@@ -229,6 +233,11 @@ class DraggableWindow(QWidget):
         # Ensure the window stays on top of the taskbar
         win32gui.SetWindowPos(hwnd, win32con.HWND_TOPMOST, 0, 0, 0, 0, win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
 
+    def closeEvent(self, event: QCloseEvent):
+        # Custom logic to run when the window is closed
+        # Simply create an exit file which can be seen by all thethreads so that they can close gracefully
+        with open(get_running_path('exit'), 'w') as _:
+            pass
 
 # Run the application
 app = QApplication(sys.argv)
