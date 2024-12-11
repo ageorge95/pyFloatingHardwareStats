@@ -1,7 +1,7 @@
-from PySide6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QFrame
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QFrame
 from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 from PySide6.QtCore import Qt, QTimer, Signal, QThread
-from PySide6.QtGui import QMouseEvent, QColor, QFont
+from PySide6.QtGui import QMouseEvent, QColor, QFont, QIcon
 from threading import Thread
 from time import sleep
 import sys
@@ -9,6 +9,7 @@ import psutil
 import win32gui
 import win32con
 import wmi
+import os
 
 def value_to_rgb_to_QTableWidgetItem(value, min_value, max_value):
     # Function that returns a QTableWidgetItem used to color the table cells in a certain manner
@@ -119,16 +120,23 @@ class StatsUpdater(QThread):
             self.stats_updated.emit(rows, colors)  # Emit signal with formatted rows and their colors
             self.msleep(500)  # Sleep for 500ms before updating again
 
+def get_running_path(relative_path):
+    if '_internal' in os.listdir():
+        return os.path.join('_internal', relative_path)
+    else:
+        return relative_path
+
 class DraggableWindow(QWidget):
     def __init__(self):
         super().__init__()
 
         # Set up the window properties
-        self.setWindowTitle("System Stats")
+        self.setWindowTitle("System Stats v" + open(get_running_path('version.txt')).read())
         self.setGeometry(100, 100, 325, 30)  # Initial position and size
         self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)  # Always on top, no frame
         self.setStyleSheet("background-color: rgba(255, 255, 255, 220);")  # Light transparent background
         self.setWindowOpacity(0.8)  # 80% opaque
+        self.setWindowIcon(QIcon(get_running_path('icon.ico')))
 
         # Create the layout
         layout = QVBoxLayout(self)
