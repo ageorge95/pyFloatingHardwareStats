@@ -59,10 +59,13 @@ def network_speed_updater(data_storage: dict):
         download_speed_MB = (final_bytes_recv - initial_bytes_recv) / sampling_interval_s / 1024**2
         upload_speed_MB = (final_bytes_sent - initial_bytes_sent) / sampling_interval_s / 1024**2
 
-        data_storage |= {'download_speed_MB': round(download_speed_MB,3),
-                         'upload_speed_MB': round(upload_speed_MB,3)}
+        # add the new values to the history
+        data_storage['download_speed_history_MB'].append(round(download_speed_MB,3))
+        data_storage['upload_speed_history_MB'].append(round(upload_speed_MB, 3))
 
-        # no sleep() needed here as cpu_percent() already takes up sampling_interval_s
+        # trim the history to only contain 1000 entries
+        data_storage['download_speed_history_MB'] = data_storage['download_speed_history_MB'][-1000:]
+        data_storage['upload_speed_history_MB'] = data_storage['upload_speed_history_MB'][-1000:]
 
 def RAM_stats_updater(data_storage: dict):
     while not os.path.isfile(get_running_path('exit')):
@@ -98,8 +101,8 @@ class StatsUpdater(QThread):
         t_CPU = Thread(target=CPU_usage_updater, args=(self.cpu_usage,))
         t_CPU.start()
 
-        self.network_stats = {'download_speed_MB': 0.000,
-                              'upload_speed_MB': 0.000}
+        self.network_stats = {'download_speed_history_MB': [0.001],
+                              'upload_speed_history_MB': [0.001]}
         t_network = Thread(target=network_speed_updater, args=(self.network_stats,))
         t_network.start()
 
@@ -120,15 +123,19 @@ class StatsUpdater(QThread):
                      f"CPU[C]: {self.libre_hw_mon['CPU_temp']}"],
                     [f"RAM[GB]: {self.RAM_stats['ram_usage']} / {self.RAM_stats['ram_total']}",
                      f"RAM[%]: {round((self.RAM_stats['ram_usage'] / self.RAM_stats['ram_total']) * 100, 2)}"],
-                    [f"Network⬆️ [MB]: {round(self.network_stats['upload_speed_MB'], 3)}",
-                     f"Network⬇️ [MB]: {round(self.network_stats['download_speed_MB'], 3)}"]]
+                    [f"Network⬆️ [MB]: {self.network_stats['download_speed_history_MB'][-1]}",
+                     f"Network⬇️ [MB]: {self.network_stats['upload_speed_history_MB'][-1]}"]]
 
             colors = [[value_to_rgb_to_QTableWidgetItem(self.cpu_usage['cpu_percent'], 0, 100),
                        value_to_rgb_to_QTableWidgetItem(self.libre_hw_mon['CPU_temp'], 40, 90)],
                       [value_to_rgb_to_QTableWidgetItem(self.RAM_stats['ram_usage'],0,self.RAM_stats['ram_total']),
                        value_to_rgb_to_QTableWidgetItem(self.RAM_stats['ram_usage'], 0, self.RAM_stats['ram_total'])],
-                      [(255, 255, 255),
-                       (255, 255, 255)]
+                      [value_to_rgb_to_QTableWidgetItem(self.network_stats['download_speed_history_MB'][-1],
+                                                        0,
+                                                        max(self.network_stats['download_speed_history_MB'])),
+                       value_to_rgb_to_QTableWidgetItem(self.network_stats['upload_speed_history_MB'][-1],
+                                                        0,
+                                                        max(self.network_stats['upload_speed_history_MB']))]
                       ]
 
             # Emit formatted data
