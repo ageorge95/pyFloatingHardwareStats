@@ -5,3 +5,5 @@
 /venv
 /activate.bat
 /exit
+/build
+/dist
