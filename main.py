@@ -182,6 +182,11 @@ class DraggableWindow(QMainWindow):
         self.drag_frame.mousePressEvent = self.start_drag
         self.drag_frame.mouseMoveEvent = self.do_drag
 
+        # these position coordinates will be used to keep the main window exactly where the user drags it
+        # see the logic from move_window_to_fixed_position
+        self.dragged_x_pos = 0
+        self.dragged_y_pos = 0
+
         # Create a table-like visualization with labels
         # The previous implementation with QTableWidget was not ok as
         # the rows height could not be customized beyond certain limits
@@ -208,6 +213,11 @@ class DraggableWindow(QMainWindow):
         self.keep_on_top_timer = QTimer(self)
         self.keep_on_top_timer.timeout.connect(self.ensure_window_above_taskbar)
         self.keep_on_top_timer.start(100)  # Ensure window stays on top every 100ms
+
+        # Timer to move the window to the last user position
+        self.move_window_to_fixed_position_timer = QTimer(self)
+        self.move_window_to_fixed_position_timer.timeout.connect(self.move_window_to_fixed_position)
+        self.move_window_to_fixed_position_timer.start(2000)  # Ensure the window moves every 2s
 
         # Variables for drag functionality
         self.start_x = 0
@@ -248,6 +258,9 @@ class DraggableWindow(QMainWindow):
         new_x = self.x() + delta_x
         new_y = self.y() + delta_y
 
+        self.dragged_x_pos = new_x
+        self.dragged_y_pos = new_y
+
         # Allow window to move over the taskbar (no screen boundary restriction)
         self.move(new_x, new_y)
 
@@ -255,6 +268,12 @@ class DraggableWindow(QMainWindow):
         hwnd = self.winId()
         # Ensure the window stays on top of the taskbar
         win32gui.SetWindowPos(hwnd, win32con.HWND_TOPMOST, 0, 0, 0, 0, win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
+
+    def move_window_to_fixed_position(self):
+         # move the window to its latest user position
+         # very handy when the window is reset by windows - for example when reconnection to remote machines via RDP
+         if self.dragged_x_pos and self.dragged_y_pos:
+            self.move(self.dragged_x_pos,self.dragged_y_pos)
 
     def closeEvent(self, event: QCloseEvent):
         # Custom logic to run when the window is closed
