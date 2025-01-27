@@ -123,19 +123,19 @@ class StatsUpdater(QThread):
                      f"CPU[C]: {self.libre_hw_mon['CPU_temp']}"],
                     [f"RAM[GB]: {self.RAM_stats['ram_usage']} / {self.RAM_stats['ram_total']}",
                      f"RAM[%]: {round((self.RAM_stats['ram_usage'] / self.RAM_stats['ram_total']) * 100, 2)}"],
-                    [f"Network⬆️ [MB]: {self.network_stats['download_speed_history_MB'][-1]}",
-                     f"Network⬇️ [MB]: {self.network_stats['upload_speed_history_MB'][-1]}"]]
+                    [f"Network⬆️ [MB]: {self.network_stats['upload_speed_history_MB'][-1]}",
+                     f"Network⬇️ [MB]: {self.network_stats['download_speed_history_MB'][-1]}"]]
 
             colors = [[value_to_rgb_to_QTableWidgetItem(self.cpu_usage['cpu_percent'], 0, 100),
                        value_to_rgb_to_QTableWidgetItem(self.libre_hw_mon['CPU_temp'], 40, 90)],
                       [value_to_rgb_to_QTableWidgetItem(self.RAM_stats['ram_usage'],0,self.RAM_stats['ram_total']),
                        value_to_rgb_to_QTableWidgetItem(self.RAM_stats['ram_usage'], 0, self.RAM_stats['ram_total'])],
-                      [value_to_rgb_to_QTableWidgetItem(self.network_stats['download_speed_history_MB'][-1],
+                      [value_to_rgb_to_QTableWidgetItem(self.network_stats['upload_speed_history_MB'][-1],
                                                         0,
-                                                        max(self.network_stats['download_speed_history_MB'])),
-                       value_to_rgb_to_QTableWidgetItem(self.network_stats['upload_speed_history_MB'][-1],
+                                                        max(self.network_stats['upload_speed_history_MB'])),
+                       value_to_rgb_to_QTableWidgetItem(self.network_stats['download_speed_history_MB'][-1],
                                                         0,
-                                                        max(self.network_stats['upload_speed_history_MB']))]
+                                                        max(self.network_stats['download_speed_history_MB']))]
                       ]
 
             # Emit formatted data
