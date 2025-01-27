@@ -157,7 +157,7 @@ class DraggableWindow(QMainWindow):
             os.remove(get_running_path('exit'))
 
         # Set up the window properties
-        self.setWindowTitle("System Stats v" + open(get_running_path('version.txt')).read())
+        self.setWindowTitle("pyFloatingHardwareStats v" + open(get_running_path('version.txt')).read())
         self.setGeometry(100, 100, 1, 1)  # Initial position and size
         self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)  # Always on top, no frame
         self.setStyleSheet("background-color: rgba(255, 255, 255, 220);")  # Light transparent background
