@@ -1,7 +1,17 @@
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QFrame, QLabel, QGridLayout, QMainWindow
-from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
-from PySide6.QtCore import Qt, QTimer, Signal, QThread
-from PySide6.QtGui import QMouseEvent, QColor, QFont, QIcon, QCloseEvent
+from PySide6.QtWidgets import (QApplication,
+                               QWidget,
+                               QVBoxLayout,
+                               QFrame,
+                               QLabel,
+                               QGridLayout,
+                               QMainWindow)
+from PySide6.QtCore import (Qt,
+                            QTimer,
+                            Signal,
+                            QThread)
+from PySide6.QtGui import (QMouseEvent,
+                           QIcon,
+                           QCloseEvent)
 from threading import Thread
 from time import sleep
 import sys
@@ -106,15 +116,20 @@ class StatsUpdater(QThread):
         while not os.path.isfile(get_running_path('exit')):
 
             # Collect all the data points in a list
-            rows = [[f"CPU[%]: {self.cpu_usage['cpu_percent']}%",
-                     f"RAM: {self.RAM_stats['ram_usage']} GB / {self.RAM_stats['ram_total']} GB"],
-                    [f"CPU[C]: {self.libre_hw_mon['CPU_temp']}C",
-                     f"Network: {self.network_stats['download_speed_MB']}MB Down/ {self.network_stats['upload_speed_MB']}MB Up"]]
+            rows = [[f"CPU[%]: {self.cpu_usage['cpu_percent']}",
+                     f"CPU[C]: {self.libre_hw_mon['CPU_temp']}"],
+                    [f"RAM[GB]: {self.RAM_stats['ram_usage']} / {self.RAM_stats['ram_total']}",
+                     f"RAM[%]: {round((self.RAM_stats['ram_usage'] / self.RAM_stats['ram_total']) * 100, 2)}"],
+                    [f"Network⬆️ [MB]: {round(self.network_stats['upload_speed_MB'], 3)}",
+                     f"Network⬇️ [MB]: {round(self.network_stats['download_speed_MB'], 3)}"]]
 
-            colors = [[value_to_rgb_to_QTableWidgetItem(self.cpu_usage['cpu_percent'],0,100),
-                       value_to_rgb_to_QTableWidgetItem(self.RAM_stats['ram_usage'],0,self.RAM_stats['ram_total'])],
-                      [value_to_rgb_to_QTableWidgetItem(self.libre_hw_mon['CPU_temp'], 40, 90),
-                       (255,255,255)]]
+            colors = [[value_to_rgb_to_QTableWidgetItem(self.cpu_usage['cpu_percent'], 0, 100),
+                       value_to_rgb_to_QTableWidgetItem(self.libre_hw_mon['CPU_temp'], 40, 90)],
+                      [value_to_rgb_to_QTableWidgetItem(self.RAM_stats['ram_usage'],0,self.RAM_stats['ram_total']),
+                       value_to_rgb_to_QTableWidgetItem(self.RAM_stats['ram_usage'], 0, self.RAM_stats['ram_total'])],
+                      [(255, 255, 255),
+                       (255, 255, 255)]
+                      ]
 
             # Emit formatted data
             self.stats_updated.emit(rows, colors)  # Emit signal with formatted rows and their colors
@@ -164,7 +179,7 @@ class DraggableWindow(QMainWindow):
         # The previous implementation with QTableWidget was not ok as
         # the rows height could not be customized beyond certain limits
         self._cells = {}
-        for column_index in range(2):  # 3 columns
+        for column_index in range(3):  # 3 columns
             column_layout = QVBoxLayout()  # Vertical layout for a single column
             column_layout.setSpacing(0)  # Remove spacing between labels
             column_layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the column
@@ -203,8 +218,8 @@ class DraggableWindow(QMainWindow):
 
     def update_table(self, rows, colors):
 
-        for (row_idx, row), (_, color) in zip(enumerate(rows), enumerate(colors)):
-            for (col_idx, cell_data), (_, color) in zip(enumerate(row), enumerate(color)):
+        for (col_idx, row), (_, color) in zip(enumerate(rows), enumerate(colors)):
+            for (row_idx, cell_data), (_, color) in zip(enumerate(row), enumerate(color)):
                 self._cells[f'{col_idx}_{row_idx}'].setText(cell_data)
                 self._cells[f'{col_idx}_{row_idx}'].setStyleSheet(f"background-color: rgb{color};")
 
