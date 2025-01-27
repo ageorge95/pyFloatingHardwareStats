@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QFrame
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QFrame, QLabel, QGridLayout, QMainWindow
 from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 from PySide6.QtCore import Qt, QTimer, Signal, QThread
 from PySide6.QtGui import QMouseEvent, QColor, QFont, QIcon, QCloseEvent
@@ -126,7 +126,7 @@ def get_running_path(relative_path):
     else:
         return relative_path
 
-class DraggableWindow(QWidget):
+class DraggableWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
@@ -142,37 +142,45 @@ class DraggableWindow(QWidget):
         self.setWindowOpacity(0.8)  # 80% opaque
         self.setWindowIcon(QIcon(get_running_path('icon.ico')))
 
-        # Create the layout
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)  # Remove the outer margins
-        layout.setSpacing(0)  # Remove the space between the widgets
+        # Central widget and layout
+        central_widget = QWidget(self)
+        self.setCentralWidget(central_widget)
+
+        # Create the main grid layout for labels
+        grid_layout = QGridLayout(central_widget)
+        grid_layout.setSpacing(0)
+        grid_layout.setContentsMargins(0, 0, 0, 0)
 
         # Make the window draggable
         self.drag_frame = QFrame(self)
         self.drag_frame.setStyleSheet("background-color: gray;")
         self.drag_frame.setFixedHeight(5)
-        layout.addWidget(self.drag_frame)
+        # This frame should not be part of the grid_layout, instead it can sit on top
+        self.setMenuWidget(self.drag_frame)
         self.drag_frame.mousePressEvent = self.start_drag
         self.drag_frame.mouseMoveEvent = self.do_drag
 
-        # Create the QTableWidget (Excel-like grid)
-        self.table_widget = QTableWidget(self)
-        self.table_widget.setRowCount(2)  # Initially setting 2 rows
-        self.table_widget.setColumnCount(2)  # 3 columns per row
-        font = QFont()
-        font.setBold(True)
-        self.table_widget.setFont(font) # set the default bold text
-        # Remove headers
-        self.table_widget.horizontalHeader().setVisible(False)
-        self.table_widget.verticalHeader().setVisible(False)
-        # Set all columns and rows to be compact
-        self.table_widget.setSizeAdjustPolicy(QTableWidget.AdjustToContents)
-        self.table_widget.setColumnWidth(0, 90) # adjust the rows width
-        self.table_widget.setColumnWidth(1, 230)
-        self.table_widget.setRowHeight(0, 1)  # Adjust the height of each row
-        self.table_widget.setRowHeight(1, 1)
-        # set all items to have the bold font
-        layout.addWidget(self.table_widget)
+        # Create a table-like visualization with labels
+        # The previous implementation with QTableWidget was not ok as
+        # the rows height could not be customized beyond certain limits
+        self._cells = {}
+        for column_index in range(2):  # 3 columns
+            column_layout = QVBoxLayout()  # Vertical layout for a single column
+            column_layout.setSpacing(0)  # Remove spacing between labels
+            column_layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the column
+
+            for row_index in range(2):  # Five rows per column
+                label = QLabel(f"Row {row_index}, Col {column_index}: TBD")
+                # the cells are stored with the <col_nr>_<row_nr> keys
+                self._cells[f'{column_index}_{row_index}'] = label
+
+                label.setStyleSheet("color: black; padding: 0px; margin: 0px;")
+
+                # Add label to column
+                column_layout.addWidget(label)
+
+                # Add the column to the main layout
+                grid_layout.addLayout(column_layout, row_index, column_index)
 
         # Timer to keep the window always on top
         self.keep_on_top_timer = QTimer(self)
@@ -194,18 +202,11 @@ class DraggableWindow(QWidget):
         self.stats_updater.start()
 
     def update_table(self, rows, colors):
-        # Clear the table before updating
-        self.table_widget.clearContents()
-
-        # Update the table with new data
-        row_count = len(rows)
-        self.table_widget.setRowCount(row_count)
 
         for (row_idx, row), (_, color) in zip(enumerate(rows), enumerate(colors)):
             for (col_idx, cell_data), (_, color) in zip(enumerate(row), enumerate(color)):
-                item = QTableWidgetItem(cell_data)
-                item.setBackground(QColor(*color))
-                self.table_widget.setItem(row_idx, col_idx, item)
+                self._cells[f'{col_idx}_{row_idx}'].setText(cell_data)
+                self._cells[f'{col_idx}_{row_idx}'].setStyleSheet(f"background-color: rgb{color};")
 
     def start_drag(self, event: QMouseEvent):
         # Record the current position of the window and mouse
