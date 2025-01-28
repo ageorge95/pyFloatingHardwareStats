@@ -264,7 +264,7 @@ class DraggableWindow(QMainWindow):
                                     "padding: 0px; "
                                     "margin: 0px; "
                                     "font-family: Arial; "
-                                    "font-size: 12px; "
+                                    "font-size: 10px; "
                                     "font-weight: bold;"
                                     )
 
@@ -307,7 +307,7 @@ class DraggableWindow(QMainWindow):
                                                                   "padding: 0px; "
                                                                   "margin: 0px; "
                                                                   "font-family: Arial; "
-                                                                  "font-size: 12px; "
+                                                                  "font-size: 10px; "
                                                                   "font-weight: bold; "
                                                                   f"background-color: rgb{color};"
                                                                   )
