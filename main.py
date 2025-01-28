@@ -79,14 +79,61 @@ def RAM_stats_updater(data_storage: dict):
 def libre_hw_mon_updater(data_storage: dict):
     while not os.path.isfile(get_running_path('exit')):
         try:
-            # Connect to LibreHardwareMonitor's WMI namespace
             w = wmi.WMI(namespace="root\\LibreHardwareMonitor")
-            query = 'SELECT Value FROM Sensor WHERE SensorType="Temperature" AND Name="CPU Package"'
-            results = w.query(query)
-            data_storage |= {'CPU_temp': results[0].Value}
-        except Exception as e:
-            data_storage |= {'CPU_temp': 0}
-            print('Querying LibreHardwareMonitor failed !')
+            # update CPU_temp
+            try:
+                # Connect to LibreHardwareMonitor's WMI namespace
+                query = 'SELECT Value FROM Sensor WHERE SensorType="Temperature" AND Name="CPU Package"'
+                results = w.query(query)
+                data_storage |= {'CPU_temp': results[0].Value}
+            except Exception as e:
+                data_storage |= {'CPU_temp': 0}
+                print('Querying CPU_temp LibreHardwareMonitor failed !', e)
+
+            # update the stats for the dedicated GPU
+            # !!! NOTE: Only nvidia dedicated GPUs are supported for now !!!
+            try:
+                # Connect to LibreHardwareMonitor's WMI namespace
+                query_temperature = 'SELECT Value FROM Sensor WHERE SensorType="Temperature" AND Parent LIKE "%nvidia%" AND Name="GPU Core"'
+                results_temperature = w.query(query_temperature)
+
+                data_storage |= {'dGPU_temp': results_temperature[0].Value}
+            except Exception as e:
+                data_storage |= {'dGPU_temp': 0}
+                print('Querying dGPU_temp LibreHardwareMonitor failed !', e)
+
+            try:
+                # Connect to LibreHardwareMonitor's WMI namespace
+                query_usage = 'SELECT Value FROM Sensor WHERE SensorType="Load" AND Parent LIKE "%nvidia%" AND Name="GPU Core"'
+                results_usage = w.query(query_usage)
+
+                data_storage |= {'dGPU_usage': results_usage[0].Value}
+            except Exception as e:
+                data_storage |= {'dGPU_usage': 0}
+                print('Querying dGPU_usage LibreHardwareMonitor failed !', e)
+
+            # update the stats for the dedicated GPU
+            # !!! NOTE: Only intel integrated GPUs are supported for now !!!
+            # simply reuse the CPU package as the temperature of the iGPU,
+            # as there seems to be no dedicated iGPU sensor
+            data_storage |= {'iGPU_temp': data_storage['CPU_temp']}
+
+            try:
+                # Connect to LibreHardwareMonitor's WMI namespace
+                query_usage = 'SELECT Value FROM Sensor WHERE SensorType="Load" AND Parent LIKE "%intel%" AND Name="D3D 3D"'
+                results_usage = w.query(query_usage)
+
+                data_storage |= {'iGPU_usage': round(results_usage[0].Value,2)}
+            except Exception as e:
+                data_storage |= {'iGPU_usage': 0}
+                print('Querying iGPU_usage LibreHardwareMonitor failed !', e)
+
+        except:
+            data_storage = {'CPU_temp': 0,
+                            'iGPU_temp': 0,
+                            'iGPU_usage': 0,
+                            'dGPU_temp': 0,
+                            'dGPU_usage': 0}
 
         sleep(0.25)
 
@@ -111,7 +158,11 @@ class StatsUpdater(QThread):
         t_RAM = Thread(target=RAM_stats_updater, args=(self.RAM_stats,))
         t_RAM.start()
 
-        self.libre_hw_mon = {'CPU_temp': 0}
+        self.libre_hw_mon = {'CPU_temp': 0,
+                             'iGPU_temp': 0,
+                             'iGPU_usage': 0,
+                             'dGPU_temp': 0,
+                             'dGPU_usage': 0}
         t_libre_hw_mon = Thread(target=libre_hw_mon_updater, args=(self.libre_hw_mon,))
         t_libre_hw_mon.start()
 
@@ -121,10 +172,14 @@ class StatsUpdater(QThread):
             # Collect all the data points in a list
             rows = [[f"CPU[%]: {self.cpu_usage['cpu_percent']}",
                      f"CPU[C]: {self.libre_hw_mon['CPU_temp']}"],
-                    [f"RAM[GB]: {self.RAM_stats['ram_usage']} / {self.RAM_stats['ram_total']}",
+                    [f"RAM[GB]: {self.RAM_stats['ram_usage']}({self.RAM_stats['ram_total']})",
                      f"RAM[%]: {round((self.RAM_stats['ram_usage'] / self.RAM_stats['ram_total']) * 100, 2)}"],
-                    [f"Network⬆️ [MB]: {self.network_stats['upload_speed_history_MB'][-1]}",
-                     f"Network⬇️ [MB]: {self.network_stats['download_speed_history_MB'][-1]}"]]
+                    [f"NET⬆️[MB]: {self.network_stats['upload_speed_history_MB'][-1]}",
+                     f"NET⬇️[MB]: {self.network_stats['download_speed_history_MB'][-1]}"],
+                    [f"iGPU[%]: {self.libre_hw_mon['iGPU_usage']}",
+                     f"iGPU[C]: {self.libre_hw_mon['iGPU_temp']}"],
+                    [f"dGPU[%]: {self.libre_hw_mon['dGPU_usage']}",
+                     f"dGPU[C]: {self.libre_hw_mon['dGPU_temp']}"]]
 
             colors = [[value_to_rgb_to_QTableWidgetItem(self.cpu_usage['cpu_percent'], 0, 100),
                        value_to_rgb_to_QTableWidgetItem(self.libre_hw_mon['CPU_temp'], 40, 90)],
@@ -135,7 +190,11 @@ class StatsUpdater(QThread):
                                                         max(self.network_stats['upload_speed_history_MB'])),
                        value_to_rgb_to_QTableWidgetItem(self.network_stats['download_speed_history_MB'][-1],
                                                         0,
-                                                        max(self.network_stats['download_speed_history_MB']))]
+                                                        max(self.network_stats['download_speed_history_MB']))],
+                      [value_to_rgb_to_QTableWidgetItem(self.libre_hw_mon['iGPU_usage'], 0, 100),
+                       value_to_rgb_to_QTableWidgetItem(self.libre_hw_mon['iGPU_temp'], 40, 90)],
+                      [value_to_rgb_to_QTableWidgetItem(self.libre_hw_mon['dGPU_usage'], 0, 100),
+                       value_to_rgb_to_QTableWidgetItem(self.libre_hw_mon['dGPU_temp'], 40, 90)]
                       ]
 
             # Emit formatted data
@@ -191,17 +250,23 @@ class DraggableWindow(QMainWindow):
         # The previous implementation with QTableWidget was not ok as
         # the rows height could not be customized beyond certain limits
         self._cells = {}
-        for column_index in range(3):  # 3 columns
+        for column_index in range(5):  # 3 columns
             column_layout = QVBoxLayout()  # Vertical layout for a single column
             column_layout.setSpacing(0)  # Remove spacing between labels
             column_layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the column
 
             for row_index in range(2):  # Five rows per column
-                label = QLabel(f"Row {row_index}, Col {column_index}: TBD")
+                label = QLabel(f"R{row_index}C{column_index}")
                 # the cells are stored with the <col_nr>_<row_nr> keys
                 self._cells[f'{column_index}_{row_index}'] = label
 
-                label.setStyleSheet("color: black; padding: 0px; margin: 0px;")
+                label.setStyleSheet("color: black; "
+                                    "padding: 0px; "
+                                    "margin: 0px; "
+                                    "font-family: Arial; "
+                                    "font-size: 12px; "
+                                    "font-weight: bold;"
+                                    )
 
                 # Add label to column
                 column_layout.addWidget(label)
@@ -238,7 +303,14 @@ class DraggableWindow(QMainWindow):
         for (col_idx, row), (_, color) in zip(enumerate(rows), enumerate(colors)):
             for (row_idx, cell_data), (_, color) in zip(enumerate(row), enumerate(color)):
                 self._cells[f'{col_idx}_{row_idx}'].setText(cell_data)
-                self._cells[f'{col_idx}_{row_idx}'].setStyleSheet(f"background-color: rgb{color};")
+                self._cells[f'{col_idx}_{row_idx}'].setStyleSheet("color: black; "
+                                                                  "padding: 0px; "
+                                                                  "margin: 0px; "
+                                                                  "font-family: Arial; "
+                                                                  "font-size: 12px; "
+                                                                  "font-weight: bold; "
+                                                                  f"background-color: rgb{color};"
+                                                                  )
 
     def start_drag(self, event: QMouseEvent):
         # Record the current position of the window and mouse
