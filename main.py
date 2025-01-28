@@ -20,6 +20,7 @@ import win32gui
 import win32con
 import wmi
 import os
+import json
 
 def value_to_rgb_to_QTableWidgetItem(value, min_value, max_value):
     # Function that returns a QTableWidgetItem used to color the table cells in a certain manner
@@ -211,8 +212,22 @@ class DraggableWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
+        # these position coordinates will be used to keep the main window exactly where the user drags it
+        # see the logic from move_window_to_fixed_position for details
+        self.dragged_x_pos = 0
+        self.dragged_y_pos = 0
+
         # first clear the exit flag by removing the exit file if it exists
+        # but also try to read the last window position on close
         if os.path.isfile(get_running_path('exit')):
+            try:
+                with open('exit', 'r') as file_in_handle:
+                    last_position = json.load(file_in_handle)
+                    self.dragged_x_pos = last_position['dragged_x_pos']
+                    self.dragged_y_pos = last_position['dragged_y_pos']
+            except:
+                pass
+
             os.remove(get_running_path('exit'))
 
         # Set up the window properties
@@ -240,11 +255,6 @@ class DraggableWindow(QMainWindow):
         self.setMenuWidget(self.drag_frame)
         self.drag_frame.mousePressEvent = self.start_drag
         self.drag_frame.mouseMoveEvent = self.do_drag
-
-        # these position coordinates will be used to keep the main window exactly where the user drags it
-        # see the logic from move_window_to_fixed_position
-        self.dragged_x_pos = 0
-        self.dragged_y_pos = 0
 
         # Create a table-like visualization with labels
         # The previous implementation with QTableWidget was not ok as
@@ -349,9 +359,11 @@ class DraggableWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent):
         # Custom logic to run when the window is closed
-        # Simply create an exit file which can be seen by all thethreads so that they can close gracefully
-        with open(get_running_path('exit'), 'w') as _:
-            pass
+        # Simply create an exit file which can be seen by all the threads so that they can close gracefully
+        # this file will contain the last known position of the main window
+        with open(get_running_path('exit'), 'w') as file_out_handle:
+            json.dump({'dragged_x_pos': self.dragged_x_pos,
+                           'dragged_y_pos': self.dragged_y_pos}, file_out_handle)
 
 # Run the application
 app = QApplication(sys.argv)
