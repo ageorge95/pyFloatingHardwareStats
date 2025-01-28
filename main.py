@@ -221,7 +221,7 @@ class DraggableWindow(QMainWindow):
         # but also try to read the last window position on close
         if os.path.isfile(get_running_path('exit')):
             try:
-                with open('exit', 'r') as file_in_handle:
+                with open(get_running_path('exit'), 'r') as file_in_handle:
                     last_position = json.load(file_in_handle)
                     self.dragged_x_pos = last_position['dragged_x_pos']
                     self.dragged_y_pos = last_position['dragged_y_pos']
