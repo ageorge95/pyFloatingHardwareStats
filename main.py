@@ -82,11 +82,14 @@ def libre_hw_mon_updater(data_storage: dict):
         try:
             w = wmi.WMI(namespace="root\\LibreHardwareMonitor")
             # update CPU_temp
+            # compatible with Intel and AMD CPUs
             try:
                 # Connect to LibreHardwareMonitor's WMI namespace
-                query = 'SELECT Value FROM Sensor WHERE SensorType="Temperature" AND Name="CPU Package"'
+                query = ('SELECT Value FROM Sensor'
+                         ' WHERE SensorType="Temperature"'
+                         ' AND (Name="CPU Package" OR Name="SoC")')
                 results = w.query(query)
-                data_storage |= {'CPU_temp': results[0].Value}
+                data_storage |= {'CPU_temp': round(results[0].Value,2)}
             except Exception as e:
                 data_storage |= {'CPU_temp': 0}
                 print('Querying CPU_temp LibreHardwareMonitor failed !', e)
@@ -115,9 +118,6 @@ def libre_hw_mon_updater(data_storage: dict):
 
             # update the stats for the dedicated GPU
             # !!! NOTE: Only intel integrated GPUs are supported for now !!!
-            # simply reuse the CPU package as the temperature of the iGPU,
-            # as there seems to be no dedicated iGPU sensor
-            data_storage |= {'iGPU_temp': data_storage['CPU_temp']}
 
             try:
                 # Connect to LibreHardwareMonitor's WMI namespace
@@ -125,6 +125,11 @@ def libre_hw_mon_updater(data_storage: dict):
                 results_usage = w.query(query_usage)
 
                 data_storage |= {'iGPU_usage': round(results_usage[0].Value,2)}
+
+                # simply reuse the CPU package as the temperature of the iGPU,
+                # as there seems to be no dedicated iGPU sensor
+                data_storage |= {'iGPU_temp': data_storage['CPU_temp']}
+
             except Exception as e:
                 data_storage |= {'iGPU_usage': 0}
                 print('Querying iGPU_usage LibreHardwareMonitor failed !', e)
