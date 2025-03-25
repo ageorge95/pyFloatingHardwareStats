@@ -14,6 +14,7 @@ from PySide6.QtGui import (QMouseEvent,
                            QCloseEvent)
 from threading import Thread
 from time import sleep
+from ag95 import red_green_from_range_value
 import sys
 import psutil
 import win32gui
@@ -21,21 +22,6 @@ import win32con
 import wmi
 import os
 import json
-
-def value_to_rgb_to_QTableWidgetItem(value, min_value, max_value):
-    # Function that returns a QTableWidgetItem used to color the table cells in a certain manner
-    # Ensure value is within the range [min_value, max_value]
-    value = max(min(value, max_value), min_value)
-
-    # Calculate the ratio of the value within the range
-    ratio = (value - min_value) / (max_value - min_value)
-
-    # Interpolate between green (0, 255, 0) and red (255, 0, 0)
-    red = int(ratio * 255)  # Red increases as the value increases
-    green = int((1 - ratio) * 255)  # Green decreases as the value increases
-
-    # return the RGB value
-    return (red, green, 0)
 
 def CPU_usage_updater(data_storage: dict):
     while not os.path.isfile(get_running_path('exit')):
@@ -187,20 +173,20 @@ class StatsUpdater(QThread):
                     [f"dGPU[%]: {self.libre_hw_mon['dGPU_usage']}",
                      f"dGPU[C]: {self.libre_hw_mon['dGPU_temp']}"]]
 
-            colors = [[value_to_rgb_to_QTableWidgetItem(self.cpu_usage['cpu_percent'], 0, 100),
-                       value_to_rgb_to_QTableWidgetItem(self.libre_hw_mon['CPU_temp'], 40, 90)],
-                      [value_to_rgb_to_QTableWidgetItem(self.RAM_stats['ram_usage'],0,self.RAM_stats['ram_total']),
-                       value_to_rgb_to_QTableWidgetItem(self.RAM_stats['ram_usage'], 0, self.RAM_stats['ram_total'])],
-                      [value_to_rgb_to_QTableWidgetItem(self.network_stats['upload_speed_history_MB'][-1],
-                                                        0,
-                                                        max(self.network_stats['upload_speed_history_MB'])),
-                       value_to_rgb_to_QTableWidgetItem(self.network_stats['download_speed_history_MB'][-1],
-                                                        0,
-                                                        max(self.network_stats['download_speed_history_MB']))],
-                      [value_to_rgb_to_QTableWidgetItem(self.libre_hw_mon['iGPU_usage'], 0, 100),
-                       value_to_rgb_to_QTableWidgetItem(self.libre_hw_mon['iGPU_temp'], 40, 90)],
-                      [value_to_rgb_to_QTableWidgetItem(self.libre_hw_mon['dGPU_usage'], 0, 100),
-                       value_to_rgb_to_QTableWidgetItem(self.libre_hw_mon['dGPU_temp'], 40, 90)]
+            colors = [[red_green_from_range_value(self.cpu_usage['cpu_percent'], 0, 100),
+                       red_green_from_range_value(self.libre_hw_mon['CPU_temp'], 40, 90)],
+                      [red_green_from_range_value(self.RAM_stats['ram_usage'], 0, self.RAM_stats['ram_total']),
+                       red_green_from_range_value(self.RAM_stats['ram_usage'], 0, self.RAM_stats['ram_total'])],
+                      [red_green_from_range_value(self.network_stats['upload_speed_history_MB'][-1],
+                                                  0,
+                                                  max(self.network_stats['upload_speed_history_MB'])),
+                       red_green_from_range_value(self.network_stats['download_speed_history_MB'][-1],
+                                                  0,
+                                                  max(self.network_stats['download_speed_history_MB']))],
+                      [red_green_from_range_value(self.libre_hw_mon['iGPU_usage'], 0, 100),
+                       red_green_from_range_value(self.libre_hw_mon['iGPU_temp'], 40, 90)],
+                      [red_green_from_range_value(self.libre_hw_mon['dGPU_usage'], 0, 100),
+                       red_green_from_range_value(self.libre_hw_mon['dGPU_temp'], 40, 90)]
                       ]
 
             # Emit formatted data

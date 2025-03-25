@@ -2,3 +2,4 @@ PySide6
 psutil
 pywin32
 wmi
+ag95[colors] @ git+https://github.com/ageorge95/ag95.git
