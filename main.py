@@ -64,70 +64,50 @@ def RAM_stats_updater(data_storage: dict):
         sleep(0.5)
 
 def libre_hw_mon_updater(data_storage: dict):
+    """
+    Low-overhead updater for LibreHardwareMonitor sensors.
+    Polls only once per 2 s and keeps the WMI handle open.
+    """
+    import pythoncom
+    pythoncom.CoInitialize()           # mandatory when using WMI from a thread
+
+    try:
+        w = wmi.WMI(namespace="root\\LibreHardwareMonitor")
+    except Exception:
+        # LibreHardwareMonitor not running – fill safe defaults and exit loop
+        data_storage.update({'CPU_temp': 0, 'iGPU_temp': 0, 'iGPU_usage': 0,
+                             'dGPU_temp': 0, 'dGPU_usage': 0})
+        return
+
     while not os.path.isfile(get_running_path('exit')):
         try:
-            w = wmi.WMI(namespace="root\\LibreHardwareMonitor")
-            # update CPU_temp
-            # compatible with Intel and AMD CPUs
-            try:
-                # Connect to LibreHardwareMonitor's WMI namespace
-                query = ('SELECT Value FROM Sensor'
-                         ' WHERE SensorType="Temperature"'
-                         ' AND (Name="CPU Package" OR Name="SoC")')
-                results = w.query(query)
-                data_storage |= {'CPU_temp': round(results[0].Value,2)}
-            except Exception as e:
-                data_storage |= {'CPU_temp': 0}
-                print('Querying CPU_temp LibreHardwareMonitor failed !', e)
+            # CPU package temperature
+            cpu_q = w.query('SELECT Value FROM Sensor WHERE SensorType="Temperature" '
+                            'AND (Name="CPU Package" OR Name="SoC")')
+            data_storage['CPU_temp'] = round(cpu_q[0].Value, 2) if cpu_q else 0
 
-            # update the stats for the dedicated GPU
-            # !!! NOTE: Only nvidia dedicated GPUs are supported for now !!!
-            try:
-                # Connect to LibreHardwareMonitor's WMI namespace
-                query_temperature = 'SELECT Value FROM Sensor WHERE SensorType="Temperature" AND Parent LIKE "%nvidia%" AND Name="GPU Core"'
-                results_temperature = w.query(query_temperature)
+            # dedicated GPU (NVIDIA)
+            dgpu_temp_q = w.query('SELECT Value FROM Sensor WHERE SensorType="Temperature" '
+                                  'AND Parent LIKE "%nvidia%" AND Name="GPU Core"')
+            data_storage['dGPU_temp'] = dgpu_temp_q[0].Value if dgpu_temp_q else 0
 
-                data_storage |= {'dGPU_temp': results_temperature[0].Value}
-            except Exception as e:
-                data_storage |= {'dGPU_temp': 0}
-                print('Querying dGPU_temp LibreHardwareMonitor failed !', e)
+            dgpu_load_q = w.query('SELECT Value FROM Sensor WHERE SensorType="Load" '
+                                  'AND Parent LIKE "%nvidia%" AND Name="GPU Core"')
+            data_storage['dGPU_usage'] = dgpu_load_q[0].Value if dgpu_load_q else 0
 
-            try:
-                # Connect to LibreHardwareMonitor's WMI namespace
-                query_usage = 'SELECT Value FROM Sensor WHERE SensorType="Load" AND Parent LIKE "%nvidia%" AND Name="GPU Core"'
-                results_usage = w.query(query_usage)
+            # integrated GPU (Intel)
+            igpu_load_q = w.query('SELECT Value FROM Sensor WHERE SensorType="Load" '
+                                  'AND Parent LIKE "%intel%" AND Name="D3D 3D"')
+            data_storage['iGPU_usage'] = round(igpu_load_q[0].Value, 2) if igpu_load_q else 0
+            data_storage['iGPU_temp'] = data_storage['CPU_temp']          # fallback
 
-                data_storage |= {'dGPU_usage': results_usage[0].Value}
-            except Exception as e:
-                data_storage |= {'dGPU_usage': 0}
-                print('Querying dGPU_usage LibreHardwareMonitor failed !', e)
+        except Exception as e:
+            # Any query failure -> reset all to 0
+            data_storage.update({'CPU_temp': 0, 'iGPU_temp': 0, 'iGPU_usage': 0,
+                                 'dGPU_temp': 0, 'dGPU_usage': 0})
+            print('LibreHardwareMonitor WMI query failed:', e)
 
-            # update the stats for the dedicated GPU
-            # !!! NOTE: Only intel integrated GPUs are supported for now !!!
-
-            try:
-                # Connect to LibreHardwareMonitor's WMI namespace
-                query_usage = 'SELECT Value FROM Sensor WHERE SensorType="Load" AND Parent LIKE "%intel%" AND Name="D3D 3D"'
-                results_usage = w.query(query_usage)
-
-                data_storage |= {'iGPU_usage': round(results_usage[0].Value,2)}
-
-                # simply reuse the CPU package as the temperature of the iGPU,
-                # as there seems to be no dedicated iGPU sensor
-                data_storage |= {'iGPU_temp': data_storage['CPU_temp']}
-
-            except Exception as e:
-                data_storage |= {'iGPU_usage': 0}
-                print('Querying iGPU_usage LibreHardwareMonitor failed !', e)
-
-        except:
-            data_storage = {'CPU_temp': 0,
-                            'iGPU_temp': 0,
-                            'iGPU_usage': 0,
-                            'dGPU_temp': 0,
-                            'dGPU_usage': 0}
-
-        sleep(0.25)
+        sleep(2.0)     # relaxed polling interval
 
 # Worker thread to update stats
 class StatsUpdater(QThread):
