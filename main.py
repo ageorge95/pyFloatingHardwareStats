@@ -111,10 +111,14 @@ def libre_hw_mon_updater(data_storage: dict):
 
 # Worker thread to update stats
 class StatsUpdater(QThread):
-    stats_updated = Signal(list, list)  # Signal to send updated stats to the main thread
+    stats_updated = Signal(list, list, list)  # Signal to send updated stats to the main thread
 
     def __init__(self):
         super().__init__()
+
+        # previously emitted rows
+        self._last_rows = None
+        self._last_colors = None
 
         self.cpu_usage = {'cpu_percent': 0}
         t_CPU = Thread(target=CPU_usage_updater, args=(self.cpu_usage,))
@@ -170,8 +174,18 @@ class StatsUpdater(QThread):
                       ]
 
             # Emit formatted data
-            self.stats_updated.emit(rows, colors)  # Emit signal with formatted rows and their colors
-            self.msleep(500)  # Sleep for 500ms before updating again
+            if self._last_rows is None:
+                changed = [[True] * len(row) for row in rows]
+            else:
+                changed = [[rows[r][c] != self._last_rows[r][c] or
+                            colors[r][c] != self._last_colors[r][c]
+                            for c in range(len(rows[r]))] for r in range(len(rows))]
+
+            self._last_rows  = [row[:] for row in rows] # deep copy
+            self._last_colors = [row[:] for row in colors]
+
+            self.stats_updated.emit(rows, colors, changed)
+            self.msleep(500)
 
 def get_running_path(relative_path):
     if '_internal' in os.listdir():
@@ -279,19 +293,19 @@ class DraggableWindow(QMainWindow):
         self.stats_updater.stats_updated.connect(self.update_table)
         self.stats_updater.start()
 
-    def update_table(self, rows, colors):
-
-        for (col_idx, row), (_, color) in zip(enumerate(rows), enumerate(colors)):
-            for (row_idx, cell_data), (_, color) in zip(enumerate(row), enumerate(color)):
-                self._cells[f'{col_idx}_{row_idx}'].setText(cell_data)
-                self._cells[f'{col_idx}_{row_idx}'].setStyleSheet("color: black; "
-                                                                  "padding: 0px; "
-                                                                  "margin: 0px; "
-                                                                  "font-family: Arial; "
-                                                                  "font-size: 10px; "
-                                                                  "font-weight: bold; "
-                                                                  f"background-color: rgb{color};"
-                                                                  )
+    def update_table(self, rows, colors, changed):
+        for col_idx, (row, color_row, mask_row) in enumerate(zip(rows, colors, changed)):
+            for row_idx, (text, colour, changed_flag) in enumerate(zip(row, color_row, mask_row)):
+                if changed_flag:
+                    label = self._cells[f'{col_idx}_{row_idx}']
+                    label.setText(text)
+                    label.setStyleSheet("color: black; "
+                                        "padding: 0px; "
+                                        "margin: 0px; "
+                                        "font-family: Arial; "
+                                        "font-size: 10px; "
+                                        "font-weight: bold; "
+                                        f"background-color: rgb{colour};")
 
     def start_drag(self, event: QMouseEvent):
         # Record the current position of the window and mouse
