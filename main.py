@@ -392,13 +392,14 @@ class DraggableWindow(QMainWindow):
                 if changed_flag:
                     label = self._cells[f'{col_idx}_{row_idx}']
                     label.setText(text)
+                    r, g, b = colour
                     label.setStyleSheet("color: black; "
                                         "padding: 0px; "
                                         "margin: 0px; "
                                         "font-family: Arial; "
                                         "font-size: 10px; "
                                         "font-weight: bold; "
-                                        f"background-color: rgb{colour};")
+                                        f"background-color: rgb({r}, {g}, {b});")
 
     def start_drag(self, event: QMouseEvent):
         # Record the current position of the window and mouse
