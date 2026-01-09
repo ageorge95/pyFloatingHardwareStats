@@ -19,9 +19,11 @@ import sys
 import psutil
 import win32gui
 import win32con
-import wmi
 import os
 import json
+import requests
+
+LIBRE_HARDWARE_MONITOR_PORT = 8085
 
 def CPU_usage_updater(data_storage: dict):
     while not os.path.isfile(get_running_path('exit')):
@@ -65,49 +67,140 @@ def RAM_stats_updater(data_storage: dict):
 
 def libre_hw_mon_updater(data_storage: dict):
     """
-    Low-overhead updater for LibreHardwareMonitor sensors.
-    Polls only once per 2 s and keeps the WMI handle open.
+    Use LibreHardwareMonitor's web server JSON endpoint.
+    Polls the HTTP endpoint at 127.0.0.1:<LIBRE_HARDWARE_MONITOR_PORT>/data.json every 2 seconds.
     """
-    import pythoncom
-    pythoncom.CoInitialize()           # mandatory when using WMI from a thread
-
-    try:
-        w = wmi.WMI(namespace="root\\LibreHardwareMonitor")
-    except Exception:
-        # LibreHardwareMonitor not running – fill safe defaults and exit loop
-        data_storage.update({'CPU_temp': 0, 'iGPU_temp': 0, 'iGPU_usage': 0,
-                             'dGPU_temp': 0, 'dGPU_usage': 0})
-        return
-
     while not os.path.isfile(get_running_path('exit')):
         try:
-            # CPU package temperature
-            cpu_q = w.query('SELECT Value FROM Sensor WHERE SensorType="Temperature" '
-                            'AND (Name="CPU Package" OR Name="SoC")')
-            data_storage['CPU_temp'] = round(cpu_q[0].Value, 2) if cpu_q else 0
+            # Make HTTP request to LibreHardwareMonitor web server
+            response = requests.get(f'http://127.0.0.1:{LIBRE_HARDWARE_MONITOR_PORT}/data.json', timeout=5)
+            response.raise_for_status()  # Raise exception for bad status codes
+            data = response.json()
 
-            # dedicated GPU (NVIDIA)
-            dgpu_temp_q = w.query('SELECT Value FROM Sensor WHERE SensorType="Temperature" '
-                                  'AND Parent LIKE "%nvidia%" AND Name="GPU Core"')
-            data_storage['dGPU_temp'] = dgpu_temp_q[0].Value if dgpu_temp_q else 0
+            # Initialize with defaults
+            cpu_temp = 0
+            igpu_temp = 0
+            igpu_usage = 0
+            dgpu_temp = 0
+            dgpu_usage = 0
 
-            dgpu_load_q = w.query('SELECT Value FROM Sensor WHERE SensorType="Load" '
-                                  'AND Parent LIKE "%nvidia%" AND Name="GPU Core"')
-            data_storage['dGPU_usage'] = dgpu_load_q[0].Value if dgpu_load_q else 0
+            # Helper function to search for sensors in the nested JSON structure
+            def find_sensor(data_node, sensor_type, name_filter=None, hardware_id_filter=None):
+                """Recursively search for sensors in the JSON tree"""
+                results = []
 
-            # integrated GPU (Intel)
-            igpu_load_q = w.query('SELECT Value FROM Sensor WHERE SensorType="Load" '
-                                  'AND Parent LIKE "%intel%" AND Name="D3D 3D"')
-            data_storage['iGPU_usage'] = round(igpu_load_q[0].Value, 2) if igpu_load_q else 0
-            data_storage['iGPU_temp'] = data_storage['CPU_temp']          # fallback
+                # Check if this node is a sensor
+                if 'Type' in data_node:
+                    if data_node['Type'] == sensor_type:
+                        if name_filter is None or (name_filter and name_filter in data_node.get('Text', '')):
+                            if hardware_id_filter is None or (
+                                    hardware_id_filter and hardware_id_filter in data_node.get('HardwareId', '')):
+                                results.append(data_node)
 
+                # Recursively search children
+                for child in data_node.get('Children', []):
+                    results.extend(find_sensor(child, sensor_type, name_filter, hardware_id_filter))
+
+                return results
+
+            # Find CPU temperature (CPU Package or SoC)
+            cpu_temp_sensors = find_sensor(data, 'Temperature', 'CPU Package')
+            if not cpu_temp_sensors:
+                cpu_temp_sensors = find_sensor(data, 'Temperature', 'SoC')
+
+            if cpu_temp_sensors:
+                # Extract numeric value from "Value" field (e.g., "64.0 °C" -> 64.0)
+                value_str = cpu_temp_sensors[0].get('Value', '0')
+                # Remove non-numeric characters except decimal point
+                try:
+                    cpu_temp = float(''.join(c for c in value_str.split()[0] if c.isdigit() or c == '.'))
+                except (ValueError, AttributeError):
+                    cpu_temp = 0
+
+            # Find dedicated GPU (NVIDIA) temperature
+            dgpu_temp_sensors = find_sensor(data, 'Temperature', 'GPU Core')
+            # Filter for NVIDIA GPU by checking parent HardwareId
+            if dgpu_temp_sensors:
+                # We need to check if this is actually the NVIDIA GPU
+                # usually NVIDIA GPU is under hardware ID "/gpu-nvidia/0"
+                nvidia_dgpu_temp = [s for s in dgpu_temp_sensors
+                                    if s.get('SensorId', '').startswith('/gpu-nvidia')]
+                if nvidia_dgpu_temp:
+                    value_str = nvidia_dgpu_temp[0].get('Value', '0')
+                    try:
+                        dgpu_temp = float(''.join(c for c in value_str.split()[0] if c.isdigit() or c == '.'))
+                    except (ValueError, AttributeError):
+                        dgpu_temp = 0
+
+            # Find dedicated GPU (NVIDIA) usage
+            dgpu_load_sensors = find_sensor(data, 'Load', 'GPU Core')
+            if dgpu_load_sensors:
+                nvidia_dgpu_load = [s for s in dgpu_load_sensors
+                                    if s.get('SensorId', '').startswith('/gpu-nvidia')]
+                if nvidia_dgpu_load:
+                    value_str = nvidia_dgpu_load[0].get('Value', '0')
+                    try:
+                        dgpu_usage = float(''.join(c for c in value_str.split()[0] if c.isdigit() or c == '.'))
+                    except (ValueError, AttributeError):
+                        dgpu_usage = 0
+
+            # Find integrated GPU (Intel) usage - D3D 3D load
+            # usually Intel GPU is under "/gpu-intel-integrated/"
+            igpu_load_sensors = find_sensor(data, 'Load', 'D3D 3D')
+            if igpu_load_sensors:
+                intel_igpu_load = [s for s in igpu_load_sensors
+                                   if '/gpu-intel-integrated/' in s.get('SensorId', '')]
+                if intel_igpu_load:
+                    value_str = intel_igpu_load[0].get('Value', '0')
+                    try:
+                        igpu_usage = float(''.join(c for c in value_str.split()[0] if c.isdigit() or c == '.'))
+                    except (ValueError, AttributeError):
+                        igpu_usage = 0
+
+            # Integrated GPU temperature - fallback to CPU temperature
+            igpu_temp = cpu_temp
+
+            # Update data storage
+            data_storage.update({
+                'CPU_temp': round(cpu_temp, 2),
+                'iGPU_temp': round(igpu_temp, 2),
+                'iGPU_usage': round(igpu_usage, 2),
+                'dGPU_temp': round(dgpu_temp, 2),
+                'dGPU_usage': round(dgpu_usage, 2)
+            })
+
+        except requests.exceptions.RequestException as e:
+            # Connection error - LibreHardwareMonitor web server might not be running
+            data_storage.update({
+                'CPU_temp': 0,
+                'iGPU_temp': 0,
+                'iGPU_usage': 0,
+                'dGPU_temp': 0,
+                'dGPU_usage': 0
+            })
+            print(f'LibreHardwareMonitor HTTP request failed: {e}')
+        except json.JSONDecodeError as e:
+            # Invalid JSON response
+            data_storage.update({
+                'CPU_temp': 0,
+                'iGPU_temp': 0,
+                'iGPU_usage': 0,
+                'dGPU_temp': 0,
+                'dGPU_usage': 0
+            })
+            print(f'LibreHardwareMonitor JSON decode failed: {e}')
         except Exception as e:
-            # Any query failure -> reset all to 0
-            data_storage.update({'CPU_temp': 0, 'iGPU_temp': 0, 'iGPU_usage': 0,
-                                 'dGPU_temp': 0, 'dGPU_usage': 0})
-            print('LibreHardwareMonitor WMI query failed:', e)
+            # Any other error
+            data_storage.update({
+                'CPU_temp': 0,
+                'iGPU_temp': 0,
+                'iGPU_usage': 0,
+                'dGPU_temp': 0,
+                'dGPU_usage': 0
+            })
+            print(f'LibreHardwareMonitor error: {e}')
 
-        sleep(2.0)     # relaxed polling interval
+        sleep(2.0)  # Keep the same relaxed polling interval
 
 # Worker thread to update stats
 class StatsUpdater(QThread):
