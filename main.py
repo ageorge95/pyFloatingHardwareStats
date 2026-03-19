@@ -1,6 +1,5 @@
 from PySide6.QtWidgets import (QApplication,
                                QWidget,
-                               QVBoxLayout,
                                QFrame,
                                QLabel,
                                QGridLayout,
@@ -60,8 +59,8 @@ def RAM_stats_updater(data_storage: dict):
     while not os.path.isfile(get_running_path('exit')):
         ram_usage = psutil.virtual_memory().used / (1024 ** 3)  # in GB
         ram_total = psutil.virtual_memory().total / (1024 ** 3)  # in GB
-        data_storage |= {'ram_usage': round(ram_usage,2),
-                         'ram_total': round(ram_total,2)}
+        data_storage |= {'ram_usage': round(ram_usage,1),
+                         'ram_total': round(ram_total,1)}
 
         sleep(0.5)
 
@@ -83,6 +82,12 @@ def libre_hw_mon_updater(data_storage: dict):
             igpu_usage = 0
             dgpu_temp = 0
             dgpu_usage = 0
+            disk1_activity = 0
+            disk1_read_speed = 0
+            disk1_write_speed = 0
+            disk2_activity = 0
+            disk2_read_speed = 0
+            disk2_write_speed = 0
 
             # Helper function to search for sensors in the nested JSON structure
             def find_sensor(data_node, sensor_type, name_filter=None, hardware_id_filter=None):
@@ -102,6 +107,60 @@ def libre_hw_mon_updater(data_storage: dict):
                     results.extend(find_sensor(child, sensor_type, name_filter, hardware_id_filter))
 
                 return results
+
+            # Helper function to find a hardware node by its exact "Text" field
+            def find_hardware_node(data_node, text_to_find):
+                """Recursively search the JSON tree for a hardware node with a specific Text value."""
+                if data_node.get('Text') == text_to_find and 'HardwareId' in data_node:
+                    # Check if it's a hardware device and not just a category
+                    if data_node.get('ImageURL', '').startswith('images_icon/'):
+                        return data_node
+                for child in data_node.get('Children', []):
+                    found = find_hardware_node(child, text_to_find)
+                    if found:
+                        return found
+                return None
+
+            # Helper function to extract "Total Activity" from a disk node
+            def get_disk_activity(disk_node):
+                if not disk_node:
+                    return 0
+                activity_sensors = find_sensor(disk_node, 'Load', 'Total Activity')
+                if activity_sensors:
+                    value_str = activity_sensors[0].get('Value', '0')
+                    try:
+                        return float(''.join(c for c in value_str.split()[0] if c.isdigit() or c == '.'))
+                    except (ValueError, AttributeError):
+                        pass
+                return 0
+
+            # Helper function to get disk throughput in MB/s
+            def get_disk_throughput(disk_node, rate_name):
+                if not disk_node:
+                    return 0
+                throughput_sensors = find_sensor(disk_node, 'Throughput', rate_name)
+                if throughput_sensors:
+                    # Use RawValue which is in B/s for consistent conversion
+                    value_str = throughput_sensors[0].get('RawValue', '0')
+                    try:
+                        # Value is like "307710.3 B/s", split and take the numeric part
+                        bytes_per_second = float(value_str.split()[0])
+                        megabytes_per_second = bytes_per_second / (1024 ** 2)
+                        return megabytes_per_second
+                    except (ValueError, AttributeError, IndexError):
+                        pass
+                return 0
+
+            # Find 'disk1' and 'disk2' and get their stats
+            disk1_node = find_hardware_node(data, 'disk1')
+            disk1_activity = get_disk_activity(disk1_node)
+            disk1_read_speed = get_disk_throughput(disk1_node, "Read Rate")
+            disk1_write_speed = get_disk_throughput(disk1_node, "Write Rate")
+
+            disk2_node = find_hardware_node(data, 'disk2')
+            disk2_activity = get_disk_activity(disk2_node)
+            disk2_read_speed = get_disk_throughput(disk2_node, "Read Rate")
+            disk2_write_speed = get_disk_throughput(disk2_node, "Write Rate")
 
             # Find CPU temperature (CPU Package or SoC)
             cpu_temp_sensors = find_sensor(data, 'Temperature', 'CPU Package')
@@ -160,44 +219,36 @@ def libre_hw_mon_updater(data_storage: dict):
             # Integrated GPU temperature - fallback to CPU temperature
             igpu_temp = cpu_temp
 
-            # Update data storage
-            data_storage.update({
-                'CPU_temp': round(cpu_temp, 2),
-                'iGPU_temp': round(igpu_temp, 2),
-                'iGPU_usage': round(igpu_usage, 2),
-                'dGPU_temp': round(dgpu_temp, 2),
-                'dGPU_usage': round(dgpu_usage, 2)
-            })
+            # Update data storage including history for disk speeds
+            data_storage['CPU_temp'] = int(cpu_temp)
+            data_storage['iGPU_temp'] = int(igpu_temp)
+            data_storage['iGPU_usage'] = round(igpu_usage, 2)
+            data_storage['dGPU_temp'] = int(dgpu_temp)
+            data_storage['dGPU_usage'] = round(dgpu_usage, 2)
+            data_storage['disk1_activity'] = round(disk1_activity, 2)
+            data_storage['disk1_read_speed'] = round(disk1_read_speed, 2)
+            data_storage['disk1_write_speed'] = round(disk1_write_speed, 2)
+            data_storage['disk2_activity'] = round(disk2_activity, 2)
+            data_storage['disk2_read_speed'] = round(disk2_read_speed, 2)
+            data_storage['disk2_write_speed'] = round(disk2_write_speed, 2)
+
+            # Append to history and trim
+            for key in ['disk1_read_speed', 'disk1_write_speed', 'disk2_read_speed', 'disk2_write_speed']:
+                history_key = f"{key}_history_MBs"
+                data_storage[history_key].append(data_storage[key])
+                data_storage[history_key] = data_storage[history_key][-1000:]
 
         except requests.exceptions.RequestException as e:
-            # Connection error - LibreHardwareMonitor web server might not be running
-            data_storage.update({
-                'CPU_temp': 0,
-                'iGPU_temp': 0,
-                'iGPU_usage': 0,
-                'dGPU_temp': 0,
-                'dGPU_usage': 0
-            })
+            # On error, reset current values but keep history
+            data_storage.update({'CPU_temp': 0, 'iGPU_temp': 0, 'iGPU_usage': 0, 'dGPU_temp': 0, 'dGPU_usage': 0,
+                                 'disk1_activity': 0, 'disk1_read_speed': 0, 'disk1_write_speed': 0,
+                                 'disk2_activity': 0, 'disk2_read_speed': 0, 'disk2_write_speed': 0})
             print(f'LibreHardwareMonitor HTTP request failed: {e}')
-        except json.JSONDecodeError as e:
-            # Invalid JSON response
-            data_storage.update({
-                'CPU_temp': 0,
-                'iGPU_temp': 0,
-                'iGPU_usage': 0,
-                'dGPU_temp': 0,
-                'dGPU_usage': 0
-            })
-            print(f'LibreHardwareMonitor JSON decode failed: {e}')
-        except Exception as e:
-            # Any other error
-            data_storage.update({
-                'CPU_temp': 0,
-                'iGPU_temp': 0,
-                'iGPU_usage': 0,
-                'dGPU_temp': 0,
-                'dGPU_usage': 0
-            })
+        except (json.JSONDecodeError, Exception) as e:
+            # On error, reset current values but keep history
+            data_storage.update({'CPU_temp': 0, 'iGPU_temp': 0, 'iGPU_usage': 0, 'dGPU_temp': 0, 'dGPU_usage': 0,
+                                 'disk1_activity': 0, 'disk1_read_speed': 0, 'disk1_write_speed': 0,
+                                 'disk2_activity': 0, 'disk2_read_speed': 0, 'disk2_write_speed': 0})
             print(f'LibreHardwareMonitor error: {e}')
 
         sleep(2.0)  # Keep the same relaxed polling interval
@@ -227,44 +278,44 @@ class StatsUpdater(QThread):
         t_RAM = Thread(target=RAM_stats_updater, args=(self.RAM_stats,))
         t_RAM.start()
 
-        self.libre_hw_mon = {'CPU_temp': 0,
-                             'iGPU_temp': 0,
-                             'iGPU_usage': 0,
-                             'dGPU_temp': 0,
-                             'dGPU_usage': 0}
+        self.libre_hw_mon = {'CPU_temp': 0, 'iGPU_temp': 0, 'iGPU_usage': 0, 'dGPU_temp': 0, 'dGPU_usage': 0,
+                             'disk1_activity': 0, 'disk1_read_speed': 0, 'disk1_write_speed': 0,
+                             'disk2_activity': 0, 'disk2_read_speed': 0, 'disk2_write_speed': 0,
+                             'disk1_read_speed_history_MBs': [0.001], 'disk1_write_speed_history_MBs': [0.001],
+                             'disk2_read_speed_history_MBs': [0.001], 'disk2_write_speed_history_MBs': [0.001]}
         t_libre_hw_mon = Thread(target=libre_hw_mon_updater, args=(self.libre_hw_mon,))
         t_libre_hw_mon.start()
 
     def run(self):
         while not os.path.isfile(get_running_path('exit')):
+            ram_percent = round((self.RAM_stats['ram_usage'] / self.RAM_stats['ram_total']) * 100, 1) if self.RAM_stats['ram_total'] > 0 else 0
 
-            # Collect all the data points in a list
-            rows = [[f"CPU[%]: {self.cpu_usage['cpu_percent']}",
-                     f"CPU[C]: {self.libre_hw_mon['CPU_temp']}"],
-                    [f"RAM[GB]: {self.RAM_stats['ram_usage']}({self.RAM_stats['ram_total']})",
-                     f"RAM[%]: {round((self.RAM_stats['ram_usage'] / self.RAM_stats['ram_total']) * 100, 2)}"],
-                    [f"NET⬆️[MB]: {self.network_stats['upload_speed_history_MB'][-1]}",
-                     f"NET⬇️[MB]: {self.network_stats['download_speed_history_MB'][-1]}"],
-                    [f"iGPU[%]: {self.libre_hw_mon['iGPU_usage']}",
-                     f"iGPU[C]: {self.libre_hw_mon['iGPU_temp']}"],
-                    [f"dGPU[%]: {self.libre_hw_mon['dGPU_usage']}",
-                     f"dGPU[C]: {self.libre_hw_mon['dGPU_temp']}"]]
+            # Collect all the data points in a 4x4 grid
+            rows = [
+                [f"CPU[%]: {self.cpu_usage['cpu_percent']}", f"RAM[%]: {ram_percent}", f"iGPU[%]: {self.libre_hw_mon['iGPU_usage']}", f"dGPU[%]: {self.libre_hw_mon['dGPU_usage']}"],
+                [f"CPU[C]: {self.libre_hw_mon['CPU_temp']}", f"RAM[GB]: {self.RAM_stats['ram_usage']}", f"iGPU[C]: {self.libre_hw_mon['iGPU_temp']}", f"dGPU[C]: {self.libre_hw_mon['dGPU_temp']}"],
+                [f"NET⬆️: {self.network_stats['upload_speed_history_MB'][-1]}", f"D1[%]]: {self.libre_hw_mon['disk1_activity']}", f"D1_R[MB\s]: {self.libre_hw_mon['disk1_read_speed']}", f"D1_W[MB\s]: {self.libre_hw_mon['disk1_write_speed']}"],
+                [f"NET⬇️: {self.network_stats['download_speed_history_MB'][-1]}", f"D2[%]: {self.libre_hw_mon['disk2_activity']}", f"D2_R[MB\s]: {self.libre_hw_mon['disk2_read_speed']}", f"D2_W[MB\s]: {self.libre_hw_mon['disk2_write_speed']}"]
+            ]
 
-            colors = [[red_green_from_range_value(self.cpu_usage['cpu_percent'], 0, 100),
-                       red_green_from_range_value(self.libre_hw_mon['CPU_temp'], 40, 90)],
-                      [red_green_from_range_value(self.RAM_stats['ram_usage'], 0, self.RAM_stats['ram_total']),
-                       red_green_from_range_value(self.RAM_stats['ram_usage'], 0, self.RAM_stats['ram_total'])],
-                      [red_green_from_range_value(self.network_stats['upload_speed_history_MB'][-1],
-                                                  0,
-                                                  max(self.network_stats['upload_speed_history_MB'])),
-                       red_green_from_range_value(self.network_stats['download_speed_history_MB'][-1],
-                                                  0,
-                                                  max(self.network_stats['download_speed_history_MB']))],
-                      [red_green_from_range_value(self.libre_hw_mon['iGPU_usage'], 0, 100),
-                       red_green_from_range_value(self.libre_hw_mon['iGPU_temp'], 40, 90)],
-                      [red_green_from_range_value(self.libre_hw_mon['dGPU_usage'], 0, 100),
-                       red_green_from_range_value(self.libre_hw_mon['dGPU_temp'], 40, 90)]
-                      ]
+            colors = [
+                [red_green_from_range_value(self.cpu_usage['cpu_percent'], 0, 100),
+                 red_green_from_range_value(self.RAM_stats['ram_usage'], 0, self.RAM_stats['ram_total']),
+                 red_green_from_range_value(self.libre_hw_mon['iGPU_usage'], 0, 100),
+                 red_green_from_range_value(self.libre_hw_mon['dGPU_usage'], 0, 100)],
+                [red_green_from_range_value(self.libre_hw_mon['CPU_temp'], 40, 90),
+                 red_green_from_range_value(self.RAM_stats['ram_usage'], 0, self.RAM_stats['ram_total']),
+                 red_green_from_range_value(self.libre_hw_mon['iGPU_temp'], 40, 90),
+                 red_green_from_range_value(self.libre_hw_mon['dGPU_temp'], 40, 90)],
+                [red_green_from_range_value(self.network_stats['upload_speed_history_MB'][-1], 0, max(self.network_stats['upload_speed_history_MB'])),
+                 red_green_from_range_value(self.libre_hw_mon['disk1_activity'], 0, 100),
+                 red_green_from_range_value(self.libre_hw_mon['disk1_read_speed'], 0, max(self.libre_hw_mon['disk1_read_speed_history_MBs'])),
+                 red_green_from_range_value(self.libre_hw_mon['disk1_write_speed'], 0, max(self.libre_hw_mon['disk1_write_speed_history_MBs']))],
+                [red_green_from_range_value(self.network_stats['download_speed_history_MB'][-1], 0, max(self.network_stats['download_speed_history_MB'])),
+                 red_green_from_range_value(self.libre_hw_mon['disk2_activity'], 0, 100),
+                 red_green_from_range_value(self.libre_hw_mon['disk2_read_speed'], 0, max(self.libre_hw_mon['disk2_read_speed_history_MBs'])),
+                 red_green_from_range_value(self.libre_hw_mon['disk2_write_speed'], 0, max(self.libre_hw_mon['disk2_write_speed_history_MBs']))]
+            ]
 
             # Emit formatted data
             if self._last_rows is None:
@@ -338,15 +389,11 @@ class DraggableWindow(QMainWindow):
         # The previous implementation with QTableWidget was not ok as
         # the rows height could not be customized beyond certain limits
         self._cells = {}
-        for column_index in range(5):  # 3 columns
-            column_layout = QVBoxLayout()  # Vertical layout for a single column
-            column_layout.setSpacing(0)  # Remove spacing between labels
-            column_layout.setContentsMargins(0, 0, 0, 0)  # Remove margins around the column
-
-            for row_index in range(2):  # Five rows per column
+        for row_index in range(4):  # 4 rows
+            for column_index in range(4):  # 4 columns
                 label = QLabel(f"R{row_index}C{column_index}")
-                # the cells are stored with the <col_nr>_<row_nr> keys
-                self._cells[f'{column_index}_{row_index}'] = label
+                # the cells are stored with the <row_nr>_<col_nr> keys
+                self._cells[f'{row_index}_{column_index}'] = label
 
                 label.setStyleSheet("color: black; "
                                     "padding: 0px; "
@@ -355,12 +402,8 @@ class DraggableWindow(QMainWindow):
                                     "font-size: 10px; "
                                     "font-weight: bold;"
                                     )
-
-                # Add label to column
-                column_layout.addWidget(label)
-
-                # Add the column to the main layout
-                grid_layout.addLayout(column_layout, row_index, column_index)
+                # Add label directly to the grid layout
+                grid_layout.addWidget(label, row_index, column_index)
 
         # Timer to keep the window always on top
         self.keep_on_top_timer = QTimer(self)
@@ -387,19 +430,21 @@ class DraggableWindow(QMainWindow):
         self.stats_updater.start()
 
     def update_table(self, rows, colors, changed):
-        for col_idx, (row, color_row, mask_row) in enumerate(zip(rows, colors, changed)):
-            for row_idx, (text, colour, changed_flag) in enumerate(zip(row, color_row, mask_row)):
+        # Data is structured as a 4x4 grid (list of rows)
+        for r, (row_data, color_row, changed_row) in enumerate(zip(rows, colors, changed)):
+            for c, (text, colour, changed_flag) in enumerate(zip(row_data, color_row, changed_row)):
                 if changed_flag:
-                    label = self._cells[f'{col_idx}_{row_idx}']
-                    label.setText(text)
-                    r, g, b = colour
-                    label.setStyleSheet("color: black; "
-                                        "padding: 0px; "
-                                        "margin: 0px; "
-                                        "font-family: Arial; "
-                                        "font-size: 10px; "
-                                        "font-weight: bold; "
-                                        f"background-color: rgb({r}, {g}, {b});")
+                    label = self._cells.get(f'{r}_{c}')
+                    if label:
+                        label.setText(text)
+                        r_val, g_val, b_val = colour
+                        label.setStyleSheet("color: black; "
+                                            "padding: 0px; "
+                                            "margin: 0px; "
+                                            "font-family: Arial; "
+                                            "font-size: 10px; "
+                                            "font-weight: bold; "
+                                            f"background-color: rgb({r_val}, {g_val}, {b_val});")
 
     def start_drag(self, event: QMouseEvent):
         # Record the current position of the window and mouse
