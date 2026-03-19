@@ -294,8 +294,8 @@ class StatsUpdater(QThread):
             rows = [
                 [f"CPU[%]: {self.cpu_usage['cpu_percent']}", f"RAM[%]: {ram_percent}", f"iGPU[%]: {self.libre_hw_mon['iGPU_usage']}", f"dGPU[%]: {self.libre_hw_mon['dGPU_usage']}"],
                 [f"CPU[C]: {self.libre_hw_mon['CPU_temp']}", f"RAM[GB]: {self.RAM_stats['ram_usage']}", f"iGPU[C]: {self.libre_hw_mon['iGPU_temp']}", f"dGPU[C]: {self.libre_hw_mon['dGPU_temp']}"],
-                [f"NET⬆️: {self.network_stats['upload_speed_history_MB'][-1]}", f"D1[%]]: {self.libre_hw_mon['disk1_activity']}", f"D1_R[MB\s]: {self.libre_hw_mon['disk1_read_speed']}", f"D1_W[MB\s]: {self.libre_hw_mon['disk1_write_speed']}"],
-                [f"NET⬇️: {self.network_stats['download_speed_history_MB'][-1]}", f"D2[%]: {self.libre_hw_mon['disk2_activity']}", f"D2_R[MB\s]: {self.libre_hw_mon['disk2_read_speed']}", f"D2_W[MB\s]: {self.libre_hw_mon['disk2_write_speed']}"]
+                [f"NET⬆️: {self.network_stats['upload_speed_history_MB'][-1]}", f"D1[%]]: {self.libre_hw_mon['disk1_activity']}", f"D1_R[MB\\s]: {self.libre_hw_mon['disk1_read_speed']}", f"D1_W[MB\\s]: {self.libre_hw_mon['disk1_write_speed']}"],
+                [f"NET⬇️: {self.network_stats['download_speed_history_MB'][-1]}", f"D2[%]: {self.libre_hw_mon['disk2_activity']}", f"D2_R[MB\\s]: {self.libre_hw_mon['disk2_read_speed']}", f"D2_W[MB\\s]: {self.libre_hw_mon['disk2_write_speed']}"]
             ]
 
             colors = [
