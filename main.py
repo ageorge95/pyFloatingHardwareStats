@@ -108,8 +108,9 @@ def libre_hw_mon_updater(data_storage: dict):
                 if activity_sensors:
                     value_str = activity_sensors[0].get('Value', '0')
                     try:
-                        return float(''.join(c for c in value_str.split()[0] if c.isdigit() or c == '.'))
-                    except (ValueError, AttributeError):
+                        # Handle comma as decimal separator
+                        return float(value_str.split()[0].replace(',', '.'))
+                    except (ValueError, AttributeError, IndexError):
                         pass
                 return 0
 
@@ -122,8 +123,9 @@ def libre_hw_mon_updater(data_storage: dict):
                     # Use RawValue which is in B/s for consistent conversion
                     value_str = throughput_sensors[0].get('RawValue', '0')
                     try:
-                        # Value is like "307710.3 B/s", split and take the numeric part
-                        bytes_per_second = float(value_str.split()[0])
+                        # Value is like "307710.3 B/s" or "307710,3 B/s", handle both decimal separators
+                        bytes_per_second_str = value_str.split()[0].replace(',', '.')
+                        bytes_per_second = float(bytes_per_second_str)
                         megabytes_per_second = bytes_per_second / (1024 ** 2)
                         return megabytes_per_second
                     except (ValueError, AttributeError, IndexError):
@@ -152,12 +154,12 @@ def libre_hw_mon_updater(data_storage: dict):
                 cpu_temp_sensors = find_sensor(data, 'Temperature', 'SoC')
 
             if cpu_temp_sensors:
-                # Extract numeric value from "Value" field (e.g., "64.0 °C" -> 64.0)
+                # Extract numeric value from "Value" field (e.g., "64.0 °C" -> 64.0 or "64,0 °C" -> 64.0)
                 value_str = cpu_temp_sensors[0].get('Value', '0')
-                # Remove non-numeric characters except decimal point
                 try:
-                    cpu_temp = float(''.join(c for c in value_str.split()[0] if c.isdigit() or c == '.'))
-                except (ValueError, AttributeError):
+                    # Handle both '.' and ',' as decimal separators
+                    cpu_temp = float(value_str.split()[0].replace(',', '.'))
+                except (ValueError, AttributeError, IndexError):
                     cpu_temp = 0
 
             # Find dedicated GPU (NVIDIA) temperature
@@ -171,8 +173,9 @@ def libre_hw_mon_updater(data_storage: dict):
                 if nvidia_dgpu_temp:
                     value_str = nvidia_dgpu_temp[0].get('Value', '0')
                     try:
-                        dgpu_temp = float(''.join(c for c in value_str.split()[0] if c.isdigit() or c == '.'))
-                    except (ValueError, AttributeError):
+                        # Handle both '.' and ',' as decimal separators
+                        dgpu_temp = float(value_str.split()[0].replace(',', '.'))
+                    except (ValueError, AttributeError, IndexError):
                         dgpu_temp = 0
 
             # Find dedicated GPU (NVIDIA) usage
@@ -183,8 +186,9 @@ def libre_hw_mon_updater(data_storage: dict):
                 if nvidia_dgpu_load:
                     value_str = nvidia_dgpu_load[0].get('Value', '0')
                     try:
-                        dgpu_usage = float(''.join(c for c in value_str.split()[0] if c.isdigit() or c == '.'))
-                    except (ValueError, AttributeError):
+                        # Handle both '.' and ',' as decimal separators
+                        dgpu_usage = float(value_str.split()[0].replace(',', '.'))
+                    except (ValueError, AttributeError, IndexError):
                         dgpu_usage = 0
 
             # Find integrated GPU (Intel) usage - D3D 3D load
@@ -196,8 +200,9 @@ def libre_hw_mon_updater(data_storage: dict):
                 if intel_igpu_load:
                     value_str = intel_igpu_load[0].get('Value', '0')
                     try:
-                        igpu_usage = float(''.join(c for c in value_str.split()[0] if c.isdigit() or c == '.'))
-                    except (ValueError, AttributeError):
+                        # Handle both '.' and ',' as decimal separators
+                        igpu_usage = float(value_str.split()[0].replace(',', '.'))
+                    except (ValueError, AttributeError, IndexError):
                         igpu_usage = 0
 
             # Integrated GPU temperature - fallback to CPU temperature
