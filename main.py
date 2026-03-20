@@ -31,29 +31,6 @@ def CPU_usage_updater(data_storage: dict):
 
         # no sleep() needed here as cpu_percent() already takes up 0.5s
 
-def network_speed_updater(data_storage: dict):
-    sampling_interval_s = 0.75
-    while not os.path.isfile(get_running_path('exit')):
-        initial_stats = psutil.net_io_counters()
-        initial_bytes_sent = initial_stats.bytes_sent
-        initial_bytes_recv = initial_stats.bytes_recv
-
-        sleep(sampling_interval_s)
-
-        final_stats = psutil.net_io_counters()
-        final_bytes_sent = final_stats.bytes_sent
-        final_bytes_recv = final_stats.bytes_recv
-
-        download_speed_MB = (final_bytes_recv - initial_bytes_recv) / sampling_interval_s / 1024**2
-        upload_speed_MB = (final_bytes_sent - initial_bytes_sent) / sampling_interval_s / 1024**2
-
-        # add the new values to the history
-        data_storage['download_speed_history_MB'].append(round(download_speed_MB,3))
-        data_storage['upload_speed_history_MB'].append(round(upload_speed_MB, 3))
-
-        # trim the history to only contain 1000 entries
-        data_storage['download_speed_history_MB'] = data_storage['download_speed_history_MB'][-1000:]
-        data_storage['upload_speed_history_MB'] = data_storage['upload_speed_history_MB'][-1000:]
 
 def RAM_stats_updater(data_storage: dict):
     while not os.path.isfile(get_running_path('exit')):
@@ -88,6 +65,8 @@ def libre_hw_mon_updater(data_storage: dict):
             disk2_activity = 0
             disk2_read_speed = 0
             disk2_write_speed = 0
+            network_upload_speed = 0
+            network_download_speed = 0
 
             # Helper function to search for sensors in the nested JSON structure
             def find_sensor(data_node, sensor_type, name_filter=None, hardware_id_filter=None):
@@ -134,11 +113,11 @@ def libre_hw_mon_updater(data_storage: dict):
                         pass
                 return 0
 
-            # Helper function to get disk throughput in MB/s
-            def get_disk_throughput(disk_node, rate_name):
-                if not disk_node:
+            # Helper function to get throughput in MB/s
+            def get_throughput_in_MBs(node, rate_name):
+                if not node:
                     return 0
-                throughput_sensors = find_sensor(disk_node, 'Throughput', rate_name)
+                throughput_sensors = find_sensor(node, 'Throughput', rate_name)
                 if throughput_sensors:
                     # Use RawValue which is in B/s for consistent conversion
                     value_str = throughput_sensors[0].get('RawValue', '0')
@@ -154,13 +133,18 @@ def libre_hw_mon_updater(data_storage: dict):
             # Find 'disk1' and 'disk2' and get their stats
             disk1_node = find_hardware_node(data, 'disk1')
             disk1_activity = get_disk_activity(disk1_node)
-            disk1_read_speed = get_disk_throughput(disk1_node, "Read Rate")
-            disk1_write_speed = get_disk_throughput(disk1_node, "Write Rate")
+            disk1_read_speed = get_throughput_in_MBs(disk1_node, "Read Rate")
+            disk1_write_speed = get_throughput_in_MBs(disk1_node, "Write Rate")
 
             disk2_node = find_hardware_node(data, 'disk2')
             disk2_activity = get_disk_activity(disk2_node)
-            disk2_read_speed = get_disk_throughput(disk2_node, "Read Rate")
-            disk2_write_speed = get_disk_throughput(disk2_node, "Write Rate")
+            disk2_read_speed = get_throughput_in_MBs(disk2_node, "Read Rate")
+            disk2_write_speed = get_throughput_in_MBs(disk2_node, "Write Rate")
+
+            # Find 'adapter1' and get its stats
+            adapter1_node = find_hardware_node(data, 'adapter1')
+            network_upload_speed = get_throughput_in_MBs(adapter1_node, "Upload Speed")
+            network_download_speed = get_throughput_in_MBs(adapter1_node, "Download Speed")
 
             # Find CPU temperature (CPU Package or SoC)
             cpu_temp_sensors = find_sensor(data, 'Temperature', 'CPU Package')
@@ -231,9 +215,12 @@ def libre_hw_mon_updater(data_storage: dict):
             data_storage['disk2_activity'] = round(disk2_activity, 2)
             data_storage['disk2_read_speed'] = round(disk2_read_speed, 2)
             data_storage['disk2_write_speed'] = round(disk2_write_speed, 2)
+            data_storage['network_upload_speed'] = round(network_upload_speed, 2)
+            data_storage['network_download_speed'] = round(network_download_speed, 2)
 
             # Append to history and trim
-            for key in ['disk1_read_speed', 'disk1_write_speed', 'disk2_read_speed', 'disk2_write_speed']:
+            for key in ['disk1_read_speed', 'disk1_write_speed', 'disk2_read_speed', 'disk2_write_speed',
+                        'network_upload_speed', 'network_download_speed']:
                 history_key = f"{key}_history_MBs"
                 data_storage[history_key].append(data_storage[key])
                 data_storage[history_key] = data_storage[history_key][-1000:]
@@ -242,13 +229,15 @@ def libre_hw_mon_updater(data_storage: dict):
             # On error, reset current values but keep history
             data_storage.update({'CPU_temp': 0, 'iGPU_temp': 0, 'iGPU_usage': 0, 'dGPU_temp': 0, 'dGPU_usage': 0,
                                  'disk1_activity': 0, 'disk1_read_speed': 0, 'disk1_write_speed': 0,
-                                 'disk2_activity': 0, 'disk2_read_speed': 0, 'disk2_write_speed': 0})
+                                 'disk2_activity': 0, 'disk2_read_speed': 0, 'disk2_write_speed': 0,
+                                 'network_upload_speed': 0, 'network_download_speed': 0})
             print(f'LibreHardwareMonitor HTTP request failed: {e}')
         except (json.JSONDecodeError, Exception) as e:
             # On error, reset current values but keep history
             data_storage.update({'CPU_temp': 0, 'iGPU_temp': 0, 'iGPU_usage': 0, 'dGPU_temp': 0, 'dGPU_usage': 0,
                                  'disk1_activity': 0, 'disk1_read_speed': 0, 'disk1_write_speed': 0,
-                                 'disk2_activity': 0, 'disk2_read_speed': 0, 'disk2_write_speed': 0})
+                                 'disk2_activity': 0, 'disk2_read_speed': 0, 'disk2_write_speed': 0,
+                                 'network_upload_speed': 0, 'network_download_speed': 0})
             print(f'LibreHardwareMonitor error: {e}')
 
         sleep(2.0)  # Keep the same relaxed polling interval
@@ -268,11 +257,6 @@ class StatsUpdater(QThread):
         t_CPU = Thread(target=CPU_usage_updater, args=(self.cpu_usage,))
         t_CPU.start()
 
-        self.network_stats = {'download_speed_history_MB': [0.001],
-                              'upload_speed_history_MB': [0.001]}
-        t_network = Thread(target=network_speed_updater, args=(self.network_stats,))
-        t_network.start()
-
         self.RAM_stats = {'ram_usage': 0,
                           'ram_total': 0}
         t_RAM = Thread(target=RAM_stats_updater, args=(self.RAM_stats,))
@@ -282,20 +266,30 @@ class StatsUpdater(QThread):
                              'disk1_activity': 0, 'disk1_read_speed': 0, 'disk1_write_speed': 0,
                              'disk2_activity': 0, 'disk2_read_speed': 0, 'disk2_write_speed': 0,
                              'disk1_read_speed_history_MBs': [0.001], 'disk1_write_speed_history_MBs': [0.001],
-                             'disk2_read_speed_history_MBs': [0.001], 'disk2_write_speed_history_MBs': [0.001]}
+                             'disk2_read_speed_history_MBs': [0.001], 'disk2_write_speed_history_MBs': [0.001],
+                             'network_upload_speed': 0, 'network_download_speed': 0,
+                             'network_upload_speed_history_MBs': [0.001], 'network_download_speed_history_MBs': [0.001]}
         t_libre_hw_mon = Thread(target=libre_hw_mon_updater, args=(self.libre_hw_mon,))
         t_libre_hw_mon.start()
 
     def run(self):
         while not os.path.isfile(get_running_path('exit')):
-            ram_percent = round((self.RAM_stats['ram_usage'] / self.RAM_stats['ram_total']) * 100, 1) if self.RAM_stats['ram_total'] > 0 else 0
+            ram_percent = round((self.RAM_stats['ram_usage'] / self.RAM_stats['ram_total']) * 100, 1) if self.RAM_stats[
+                                                                                                             'ram_total'] > 0 else 0
 
             # Collect all the data points in a 4x4 grid
             rows = [
-                [f"CPU[%]: {self.cpu_usage['cpu_percent']}", f"RAM[%]: {ram_percent}", f"iGPU[%]: {self.libre_hw_mon['iGPU_usage']}", f"dGPU[%]: {self.libre_hw_mon['dGPU_usage']}"],
-                [f"CPU[C]: {self.libre_hw_mon['CPU_temp']}", f"RAM[GB]: {self.RAM_stats['ram_usage']}", f"iGPU[C]: {self.libre_hw_mon['iGPU_temp']}", f"dGPU[C]: {self.libre_hw_mon['dGPU_temp']}"],
-                [f"NET⬆️: {self.network_stats['upload_speed_history_MB'][-1]}", f"D1[%]]: {self.libre_hw_mon['disk1_activity']}", f"D1_R[MB\\s]: {self.libre_hw_mon['disk1_read_speed']}", f"D1_W[MB\\s]: {self.libre_hw_mon['disk1_write_speed']}"],
-                [f"NET⬇️: {self.network_stats['download_speed_history_MB'][-1]}", f"D2[%]: {self.libre_hw_mon['disk2_activity']}", f"D2_R[MB\\s]: {self.libre_hw_mon['disk2_read_speed']}", f"D2_W[MB\\s]: {self.libre_hw_mon['disk2_write_speed']}"]
+                [f"CPU[%]: {self.cpu_usage['cpu_percent']}", f"RAM[%]: {ram_percent}",
+                 f"iGPU[%]: {self.libre_hw_mon['iGPU_usage']}", f"dGPU[%]: {self.libre_hw_mon['dGPU_usage']}"],
+                [f"CPU[C]: {self.libre_hw_mon['CPU_temp']}", f"RAM[GB]: {self.RAM_stats['ram_usage']}",
+                 f"iGPU[C]: {self.libre_hw_mon['iGPU_temp']}", f"dGPU[C]: {self.libre_hw_mon['dGPU_temp']}"],
+                [f"NET⬆️: {self.libre_hw_mon['network_upload_speed']}", f"D1[%]: {self.libre_hw_mon['disk1_activity']}",
+                 f"D1_R[MB\\s]: {self.libre_hw_mon['disk1_read_speed']}",
+                 f"D1_W[MB\\s]: {self.libre_hw_mon['disk1_write_speed']}"],
+                [f"NET⬇️: {self.libre_hw_mon['network_download_speed']}",
+                 f"D2[%]: {self.libre_hw_mon['disk2_activity']}",
+                 f"D2_R[MB\\s]: {self.libre_hw_mon['disk2_read_speed']}",
+                 f"D2_W[MB\\s]: {self.libre_hw_mon['disk2_write_speed']}"]
             ]
 
             colors = [
@@ -307,14 +301,20 @@ class StatsUpdater(QThread):
                  red_green_from_range_value(self.RAM_stats['ram_usage'], 0, self.RAM_stats['ram_total']),
                  red_green_from_range_value(self.libre_hw_mon['iGPU_temp'], 40, 90),
                  red_green_from_range_value(self.libre_hw_mon['dGPU_temp'], 40, 90)],
-                [red_green_from_range_value(self.network_stats['upload_speed_history_MB'][-1], 0, max(self.network_stats['upload_speed_history_MB'])),
+                [red_green_from_range_value(self.libre_hw_mon['network_upload_speed'], 0,
+                                            max(self.libre_hw_mon['network_upload_speed_history_MBs'])),
                  red_green_from_range_value(self.libre_hw_mon['disk1_activity'], 0, 100),
-                 red_green_from_range_value(self.libre_hw_mon['disk1_read_speed'], 0, max(self.libre_hw_mon['disk1_read_speed_history_MBs'])),
-                 red_green_from_range_value(self.libre_hw_mon['disk1_write_speed'], 0, max(self.libre_hw_mon['disk1_write_speed_history_MBs']))],
-                [red_green_from_range_value(self.network_stats['download_speed_history_MB'][-1], 0, max(self.network_stats['download_speed_history_MB'])),
+                 red_green_from_range_value(self.libre_hw_mon['disk1_read_speed'], 0,
+                                            max(self.libre_hw_mon['disk1_read_speed_history_MBs'])),
+                 red_green_from_range_value(self.libre_hw_mon['disk1_write_speed'], 0,
+                                            max(self.libre_hw_mon['disk1_write_speed_history_MBs']))],
+                [red_green_from_range_value(self.libre_hw_mon['network_download_speed'], 0,
+                                            max(self.libre_hw_mon['network_download_speed_history_MBs'])),
                  red_green_from_range_value(self.libre_hw_mon['disk2_activity'], 0, 100),
-                 red_green_from_range_value(self.libre_hw_mon['disk2_read_speed'], 0, max(self.libre_hw_mon['disk2_read_speed_history_MBs'])),
-                 red_green_from_range_value(self.libre_hw_mon['disk2_write_speed'], 0, max(self.libre_hw_mon['disk2_write_speed_history_MBs']))]
+                 red_green_from_range_value(self.libre_hw_mon['disk2_read_speed'], 0,
+                                            max(self.libre_hw_mon['disk2_read_speed_history_MBs'])),
+                 red_green_from_range_value(self.libre_hw_mon['disk2_write_speed'], 0,
+                                            max(self.libre_hw_mon['disk2_write_speed_history_MBs']))]
             ]
 
             # Emit formatted data
@@ -476,10 +476,10 @@ class DraggableWindow(QMainWindow):
         win32gui.SetWindowPos(hwnd, win32con.HWND_TOPMOST, 0, 0, 0, 0, win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
 
     def move_window_to_fixed_position(self):
-         # move the window to its latest user position
-         # very handy when the window is reset by windows - for example when reconnection to remote machines via RDP
-         if self.dragged_x_pos and self.dragged_y_pos:
-            self.move(self.dragged_x_pos,self.dragged_y_pos)
+        # move the window to its latest user position
+        # very handy when the window is reset by windows - for example when reconnection to remote machines via RDP
+        if self.dragged_x_pos and self.dragged_y_pos:
+            self.move(self.dragged_x_pos, self.dragged_y_pos)
 
     def closeEvent(self, event: QCloseEvent):
         # Custom logic to run when the window is closed
@@ -487,7 +487,7 @@ class DraggableWindow(QMainWindow):
         # this file will contain the last known position of the main window
         with open(get_running_path('exit'), 'w') as file_out_handle:
             json.dump({'dragged_x_pos': self.dragged_x_pos,
-                           'dragged_y_pos': self.dragged_y_pos}, file_out_handle)
+                       'dragged_y_pos': self.dragged_y_pos}, file_out_handle)
 
 # Run the application
 app = QApplication(sys.argv)
