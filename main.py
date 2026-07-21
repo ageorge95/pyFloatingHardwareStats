@@ -100,18 +100,28 @@ def libre_hw_mon_updater(data_storage: dict):
                         return found
                 return None
 
+            # Helper: safely extract a numeric value from a sensor (handles both string and numeric RawValue/Value)
+            def safe_float(sensor, key='RawValue', fallback=0):
+                raw = sensor.get(key, fallback)
+                if raw is None:
+                    return fallback
+                if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+                    return float(raw)
+                if isinstance(raw, str):
+                    try:
+                        return float(raw.split()[0].replace(',', '.'))
+                    except (ValueError, AttributeError):
+                        pass
+                return fallback
+
             # Helper function to extract "Total Activity" from a disk node
             def get_disk_activity(disk_node):
                 if not disk_node:
                     return 0
                 activity_sensors = find_sensor(disk_node, 'Load', 'Total Activity')
                 if activity_sensors:
-                    value_str = activity_sensors[0].get('Value', '0')
-                    try:
-                        # Handle comma as decimal separator
-                        return float(value_str.split()[0].replace(',', '.'))
-                    except (ValueError, AttributeError, IndexError):
-                        pass
+                    return safe_float(activity_sensors[0], 'RawValue',
+                                      safe_float(activity_sensors[0], 'Value', 0))
                 return 0
 
             # Helper function to get throughput in MB/s
@@ -120,16 +130,10 @@ def libre_hw_mon_updater(data_storage: dict):
                     return 0
                 throughput_sensors = find_sensor(node, 'Throughput', rate_name)
                 if throughput_sensors:
-                    # Use RawValue which is in B/s for consistent conversion
-                    value_str = throughput_sensors[0].get('RawValue', '0')
-                    try:
-                        # Value is like "307710.3 B/s" or "307710,3 B/s", handle both decimal separators
-                        bytes_per_second_str = value_str.split()[0].replace(',', '.')
-                        bytes_per_second = float(bytes_per_second_str)
-                        megabytes_per_second = bytes_per_second / (1024 ** 2)
-                        return megabytes_per_second
-                    except (ValueError, AttributeError, IndexError):
-                        pass
+                    # RawValue is in B/s; in LHM >=0.9.7 it's numeric, older versions used strings
+                    bytes_per_second = safe_float(throughput_sensors[0], 'RawValue', 0)
+                    if bytes_per_second > 0:
+                        return bytes_per_second / (1024 ** 2)
                 return 0
 
             # Find 'disk1' and 'disk2' and get their stats
@@ -152,58 +156,33 @@ def libre_hw_mon_updater(data_storage: dict):
             cpu_temp_sensors = find_sensor(data, 'Temperature', 'CPU Package')
             if not cpu_temp_sensors:
                 cpu_temp_sensors = find_sensor(data, 'Temperature', 'SoC')
-
             if cpu_temp_sensors:
-                # Extract numeric value from "Value" field (e.g., "64.0 °C" -> 64.0 or "64,0 °C" -> 64.0)
-                value_str = cpu_temp_sensors[0].get('Value', '0')
-                try:
-                    # Handle both '.' and ',' as decimal separators
-                    cpu_temp = float(value_str.split()[0].replace(',', '.'))
-                except (ValueError, AttributeError, IndexError):
-                    cpu_temp = 0
+                cpu_temp = safe_float(cpu_temp_sensors[0], 'Value', 0)
 
-            # Find dedicated GPU (NVIDIA) temperature
+            # Find dedicated GPU (NVIDIA) temperature (SensorId starts with /gpu-nvidia)
             dgpu_temp_sensors = find_sensor(data, 'Temperature', 'GPU Core')
-            # Filter for NVIDIA GPU by checking parent HardwareId
             if dgpu_temp_sensors:
-                # We need to check if this is actually the NVIDIA GPU
-                # usually NVIDIA GPU is under hardware ID "/gpu-nvidia/0"
                 nvidia_dgpu_temp = [s for s in dgpu_temp_sensors
                                     if s.get('SensorId', '').startswith('/gpu-nvidia')]
                 if nvidia_dgpu_temp:
-                    value_str = nvidia_dgpu_temp[0].get('Value', '0')
-                    try:
-                        # Handle both '.' and ',' as decimal separators
-                        dgpu_temp = float(value_str.split()[0].replace(',', '.'))
-                    except (ValueError, AttributeError, IndexError):
-                        dgpu_temp = 0
+                    dgpu_temp = safe_float(nvidia_dgpu_temp[0], 'Value', 0)
 
-            # Find dedicated GPU (NVIDIA) usage
+            # Find dedicated GPU (NVIDIA) usage (GPU Core load)
             dgpu_load_sensors = find_sensor(data, 'Load', 'GPU Core')
             if dgpu_load_sensors:
                 nvidia_dgpu_load = [s for s in dgpu_load_sensors
                                     if s.get('SensorId', '').startswith('/gpu-nvidia')]
                 if nvidia_dgpu_load:
-                    value_str = nvidia_dgpu_load[0].get('Value', '0')
-                    try:
-                        # Handle both '.' and ',' as decimal separators
-                        dgpu_usage = float(value_str.split()[0].replace(',', '.'))
-                    except (ValueError, AttributeError, IndexError):
-                        dgpu_usage = 0
+                    dgpu_usage = safe_float(nvidia_dgpu_load[0], 'Value', 0)
 
-            # Find integrated GPU (Intel) usage - D3D 3D load
-            # usually Intel GPU is under "/gpu-intel-integrated/"
+            # Find integrated GPU (Intel) usage - D3D 3D load not from NVIDIA
             igpu_load_sensors = find_sensor(data, 'Load', 'D3D 3D')
             if igpu_load_sensors:
-                intel_igpu_load = [s for s in igpu_load_sensors
-                                   if '/gpu-intel-integrated/' in s.get('SensorId', '')]
-                if intel_igpu_load:
-                    value_str = intel_igpu_load[0].get('Value', '0')
-                    try:
-                        # Handle both '.' and ',' as decimal separators
-                        igpu_usage = float(value_str.split()[0].replace(',', '.'))
-                    except (ValueError, AttributeError, IndexError):
-                        igpu_usage = 0
+                non_nvidia = [s for s in igpu_load_sensors
+                              if not s.get('SensorId', '').startswith('/gpu-nvidia')]
+                if non_nvidia:
+                    igpu_usage = safe_float(non_nvidia[0], 'RawValue',
+                                            safe_float(non_nvidia[0], 'Value', 0))
 
             # Integrated GPU temperature - fallback to CPU temperature
             igpu_temp = cpu_temp
