@@ -7,6 +7,18 @@ Floating window GUI that displays various hardware statistics. Main features:
 - is assured to stay on top of everything on your desktop (even the taskbar)
 - the basic statistics are read directly through python-windows APIs (CPU usage, RAM usage, network usage ...) but for the more complex ones [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases) needs to be installed and opened (like CPU temperature)
 
+# LibreHardwareMonitor sensor name setup
+
+For network and disk activity to work, you must **rename** the following hardware nodes in LibreHardwareMonitor (right-click → Rename):
+
+| Hardware | Rename to |
+|----------|-----------|
+| Your network adapter (e.g. "Intel(R) Ethernet Connection ..." or "Realtek PCIe GbE ...") | `adapter1` |
+| Your primary disk (e.g. "Samsung SSD 970 EVO ...") | `disk1` |
+| Your secondary disk (if any) | `disk2` |
+
+If you don't rename them, network and disk stats will show as zero.
+
 # GUI layout
 
 ![](ReadMe_res/GUI_layout.JPG)
