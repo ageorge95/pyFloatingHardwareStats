@@ -11,6 +11,7 @@ from PySide6.QtCore import (Qt,
 from PySide6.QtGui import (QMouseEvent,
                            QIcon,
                            QCloseEvent)
+import ctypes
 from threading import Thread
 from time import sleep
 from ag95 import red_green_from_range_value
@@ -24,8 +25,11 @@ import requests
 
 LIBRE_HARDWARE_MONITOR_PORT = 8085
 
+APP_ID = 'AG95.pyFloatingHardwareStats'
+ICON_FILE = 'icon.ico'
+
 def CPU_usage_updater(data_storage: dict):
-    while not os.path.isfile(get_running_path('exit')):
+    while not os.path.isfile(get_runtime_path('exit')):
         cpu_percent = psutil.cpu_percent(interval=0.5)
         data_storage['cpu_percent'] = cpu_percent
 
@@ -33,7 +37,7 @@ def CPU_usage_updater(data_storage: dict):
 
 
 def RAM_stats_updater(data_storage: dict):
-    while not os.path.isfile(get_running_path('exit')):
+    while not os.path.isfile(get_runtime_path('exit')):
         ram_usage = psutil.virtual_memory().used / (1024 ** 3)  # in GB
         ram_total = psutil.virtual_memory().total / (1024 ** 3)  # in GB
         data_storage |= {'ram_usage': round(ram_usage,1),
@@ -46,7 +50,7 @@ def libre_hw_mon_updater(data_storage: dict):
     Use LibreHardwareMonitor's web server JSON endpoint.
     Polls the HTTP endpoint at 127.0.0.1:<LIBRE_HARDWARE_MONITOR_PORT>/data.json every 2 seconds.
     """
-    while not os.path.isfile(get_running_path('exit')):
+    while not os.path.isfile(get_runtime_path('exit')):
         try:
             # Make HTTP request to LibreHardwareMonitor web server
             response = requests.get(f'http://127.0.0.1:{LIBRE_HARDWARE_MONITOR_PORT}/data.json', timeout=5)
@@ -257,7 +261,7 @@ class StatsUpdater(QThread):
         t_libre_hw_mon.start()
 
     def run(self):
-        while not os.path.isfile(get_running_path('exit')):
+        while not os.path.isfile(get_runtime_path('exit')):
             ram_percent = round((self.RAM_stats['ram_usage'] / self.RAM_stats['ram_total']) * 100, 1) if self.RAM_stats[
                                                                                                              'ram_total'] > 0 else 0
 
@@ -316,10 +320,24 @@ class StatsUpdater(QThread):
             self.msleep(500)
 
 def get_running_path(relative_path):
-    if '_internal' in os.listdir():
-        return os.path.join('_internal', relative_path)
-    else:
-        return relative_path
+    """Return a bundled file's path in both source and PyInstaller builds."""
+    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_path, relative_path)
+
+
+def get_runtime_path(relative_path):
+    """Return a writable path for runtime files (kept next to the working directory)."""
+    return relative_path
+
+
+def set_windows_app_id():
+    """Give the app its own Windows taskbar identity."""
+    if sys.platform != 'win32':
+        return
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
+    except (AttributeError, OSError):
+        pass
 
 class DraggableWindow(QMainWindow):
     def __init__(self):
@@ -332,16 +350,16 @@ class DraggableWindow(QMainWindow):
 
         # first clear the exit flag by removing the exit file if it exists
         # but also try to read the last window position on close
-        if os.path.isfile(get_running_path('exit')):
+        if os.path.isfile(get_runtime_path('exit')):
             try:
-                with open(get_running_path('exit'), 'r') as file_in_handle:
+                with open(get_runtime_path('exit'), 'r') as file_in_handle:
                     last_position = json.load(file_in_handle)
                     self.dragged_x_pos = last_position['dragged_x_pos']
                     self.dragged_y_pos = last_position['dragged_y_pos']
             except:
                 pass
 
-            os.remove(get_running_path('exit'))
+            os.remove(get_runtime_path('exit'))
 
         # Set up the window properties
         self.setWindowTitle("pyFloatingHardwareStats v" + open(get_running_path('version.txt')).read())
@@ -349,7 +367,7 @@ class DraggableWindow(QMainWindow):
         self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)  # Always on top, no frame
         self.setStyleSheet("background-color: rgba(255, 255, 255, 220);")  # Light transparent background
         self.setWindowOpacity(0.8)  # 80% opaque
-        self.setWindowIcon(QIcon(get_running_path('icon.ico')))
+        self.setWindowIcon(QIcon(get_running_path(ICON_FILE)))
 
         # Central widget and layout
         central_widget = QWidget(self)
@@ -469,12 +487,14 @@ class DraggableWindow(QMainWindow):
         # Custom logic to run when the window is closed
         # Simply create an exit file which can be seen by all the threads so that they can close gracefully
         # this file will contain the last known position of the main window
-        with open(get_running_path('exit'), 'w') as file_out_handle:
+        with open(get_runtime_path('exit'), 'w') as file_out_handle:
             json.dump({'dragged_x_pos': self.dragged_x_pos,
                        'dragged_y_pos': self.dragged_y_pos}, file_out_handle)
 
 # Run the application
+set_windows_app_id()
 app = QApplication(sys.argv)
+app.setWindowIcon(QIcon(get_running_path(ICON_FILE)))
 window = DraggableWindow()
 window.show()
 sys.exit(app.exec())
