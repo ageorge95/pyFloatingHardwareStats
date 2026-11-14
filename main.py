@@ -265,45 +265,43 @@ class StatsUpdater(QThread):
             ram_percent = round((self.RAM_stats['ram_usage'] / self.RAM_stats['ram_total']) * 100, 1) if self.RAM_stats[
                                                                                                              'ram_total'] > 0 else 0
 
-            # Collect all the data points in a 4x4 grid
+            # Collect all the data points in a compact 4x4 grid.
+            # Labels are replaced by emojis to keep the floating window slim.
             rows = [
-                [f"CPU[%]: {self.cpu_usage['cpu_percent']}", f"RAM[%]: {ram_percent}",
-                 f"iGPU[%]: {self.libre_hw_mon['iGPU_usage']}", f"dGPU[%]: {self.libre_hw_mon['dGPU_usage']}"],
-                [f"CPU[C]: {self.libre_hw_mon['CPU_temp']}", f"RAM[GB]: {self.RAM_stats['ram_usage']}",
-                 f"iGPU[C]: {self.libre_hw_mon['iGPU_temp']}", f"dGPU[C]: {self.libre_hw_mon['dGPU_temp']}"],
-                [f"NET⬆️: {self.libre_hw_mon['network_upload_speed']}", f"D1[%]: {self.libre_hw_mon['disk1_activity']}",
-                 f"D1_R[MB\\s]: {self.libre_hw_mon['disk1_read_speed']}",
-                 f"D1_W[MB\\s]: {self.libre_hw_mon['disk1_write_speed']}"],
-                [f"NET⬇️: {self.libre_hw_mon['network_download_speed']}",
-                 f"D2[%]: {self.libre_hw_mon['disk2_activity']}",
-                 f"D2_R[MB\\s]: {self.libre_hw_mon['disk2_read_speed']}",
-                 f"D2_W[MB\\s]: {self.libre_hw_mon['disk2_write_speed']}"]
+                [f"⚙️{self.cpu_usage['cpu_percent']}% 🔥{self.libre_hw_mon['CPU_temp']}°",
+                 f"🖥️{self.libre_hw_mon['iGPU_usage']}% 🌡️{self.libre_hw_mon['iGPU_temp']}°",
+                 f"⬆️{self.libre_hw_mon['network_upload_speed']}M",
+                 f"💿{self.libre_hw_mon['disk1_activity']}% 📖{self.libre_hw_mon['disk1_read_speed']}M ✍️{self.libre_hw_mon['disk1_write_speed']}M"],
+                [f"🧠{ram_percent}% 📦{self.RAM_stats['ram_usage']}G",
+                 f"🎮{self.libre_hw_mon['dGPU_usage']}% 🌡️{self.libre_hw_mon['dGPU_temp']}°",
+                 f"⬇️{self.libre_hw_mon['network_download_speed']}M",
+                 f"💿{self.libre_hw_mon['disk2_activity']}% 📖{self.libre_hw_mon['disk2_read_speed']}M ✍️{self.libre_hw_mon['disk2_write_speed']}M"]
             ]
 
             colors = [
-                [red_green_from_range_value(self.cpu_usage['cpu_percent'], 0, 100),
-                 red_green_from_range_value(self.RAM_stats['ram_usage'], 0, self.RAM_stats['ram_total']),
-                 red_green_from_range_value(self.libre_hw_mon['iGPU_usage'], 0, 100),
-                 red_green_from_range_value(self.libre_hw_mon['dGPU_usage'], 0, 100)],
-                [red_green_from_range_value(self.libre_hw_mon['CPU_temp'], 40, 90),
-                 red_green_from_range_value(self.RAM_stats['ram_usage'], 0, self.RAM_stats['ram_total']),
-                 red_green_from_range_value(self.libre_hw_mon['iGPU_temp'], 40, 90),
-                 red_green_from_range_value(self.libre_hw_mon['dGPU_temp'], 40, 90)],
-                [red_green_from_range_value(self.libre_hw_mon['network_upload_speed'], 0,
+                [max((red_green_from_range_value(self.cpu_usage['cpu_percent'], 0, 100),
+                      red_green_from_range_value(self.libre_hw_mon['CPU_temp'], 40, 90)), key=lambda c: c[0]),
+                 max((red_green_from_range_value(self.libre_hw_mon['iGPU_usage'], 0, 100),
+                      red_green_from_range_value(self.libre_hw_mon['iGPU_temp'], 40, 90)), key=lambda c: c[0]),
+                 red_green_from_range_value(self.libre_hw_mon['network_upload_speed'], 0,
                                             max(self.libre_hw_mon['network_upload_speed_history_MBs'])),
-                 red_green_from_range_value(self.libre_hw_mon['disk1_activity'], 0, 100),
-                 red_green_from_range_value(self.libre_hw_mon['disk1_read_speed'], 0,
-                                            max(self.libre_hw_mon['disk1_read_speed_history_MBs'])),
-                 red_green_from_range_value(self.libre_hw_mon['disk1_write_speed'], 0,
-                                            max(self.libre_hw_mon['disk1_write_speed_history_MBs']))],
-                [red_green_from_range_value(self.libre_hw_mon['network_download_speed'], 0,
+                 max((red_green_from_range_value(self.libre_hw_mon['disk1_activity'], 0, 100),
+                      red_green_from_range_value(self.libre_hw_mon['disk1_read_speed'], 0,
+                                                max(self.libre_hw_mon['disk1_read_speed_history_MBs'])),
+                      red_green_from_range_value(self.libre_hw_mon['disk1_write_speed'], 0,
+                                                max(self.libre_hw_mon['disk1_write_speed_history_MBs']))), key=lambda c: c[0])],
+                [red_green_from_range_value(self.RAM_stats['ram_usage'], 0, self.RAM_stats['ram_total']),
+                 max((red_green_from_range_value(self.libre_hw_mon['dGPU_usage'], 0, 100),
+                      red_green_from_range_value(self.libre_hw_mon['dGPU_temp'], 40, 90)), key=lambda c: c[0]),
+                 red_green_from_range_value(self.libre_hw_mon['network_download_speed'], 0,
                                             max(self.libre_hw_mon['network_download_speed_history_MBs'])),
-                 red_green_from_range_value(self.libre_hw_mon['disk2_activity'], 0, 100),
-                 red_green_from_range_value(self.libre_hw_mon['disk2_read_speed'], 0,
-                                            max(self.libre_hw_mon['disk2_read_speed_history_MBs'])),
-                 red_green_from_range_value(self.libre_hw_mon['disk2_write_speed'], 0,
-                                            max(self.libre_hw_mon['disk2_write_speed_history_MBs']))]
+                 max((red_green_from_range_value(self.libre_hw_mon['disk2_activity'], 0, 100),
+                      red_green_from_range_value(self.libre_hw_mon['disk2_read_speed'], 0,
+                                                max(self.libre_hw_mon['disk2_read_speed_history_MBs'])),
+                      red_green_from_range_value(self.libre_hw_mon['disk2_write_speed'], 0,
+                                                max(self.libre_hw_mon['disk2_write_speed_history_MBs']))), key=lambda c: c[0])]
             ]
+
 
             # Emit formatted data
             if self._last_rows is None:
@@ -375,13 +373,13 @@ class DraggableWindow(QMainWindow):
 
         # Create the main grid layout for labels
         grid_layout = QGridLayout(central_widget)
-        grid_layout.setSpacing(0)
+        grid_layout.setSpacing(1)
         grid_layout.setContentsMargins(0, 0, 0, 0)
 
         # Make the window draggable
         self.drag_frame = QFrame(self)
         self.drag_frame.setStyleSheet("background-color: gray;")
-        self.drag_frame.setFixedHeight(5)
+        self.drag_frame.setFixedHeight(3)
         # This frame should not be part of the grid_layout, instead it can sit on top
         self.setMenuWidget(self.drag_frame)
         self.drag_frame.mousePressEvent = self.start_drag
@@ -391,7 +389,7 @@ class DraggableWindow(QMainWindow):
         # The previous implementation with QTableWidget was not ok as
         # the rows height could not be customized beyond certain limits
         self._cells = {}
-        for row_index in range(4):  # 4 rows
+        for row_index in range(2):  # 2 rows
             for column_index in range(4):  # 4 columns
                 label = QLabel(f"R{row_index}C{column_index}")
                 # the cells are stored with the <row_nr>_<col_nr> keys
@@ -401,7 +399,7 @@ class DraggableWindow(QMainWindow):
                                     "padding: 0px; "
                                     "margin: 0px; "
                                     "font-family: Arial; "
-                                    "font-size: 10px; "
+                                    "font-size: 11px; "
                                     "font-weight: bold;"
                                     )
                 # Add label directly to the grid layout
@@ -444,7 +442,7 @@ class DraggableWindow(QMainWindow):
                                             "padding: 0px; "
                                             "margin: 0px; "
                                             "font-family: Arial; "
-                                            "font-size: 10px; "
+                                            "font-size: 11px; "
                                             "font-weight: bold; "
                                             f"background-color: rgb({r_val}, {g_val}, {b_val});")
 
