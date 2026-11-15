@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (QApplication,
                                QMainWindow,
                                QMenu)
 from PySide6.QtCore import (Qt,
+                            QSettings,
                             QTimer,
                             Signal,
                             QThread,
@@ -361,22 +362,16 @@ class DraggableWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
+        # Load persisted settings using QSettings (must be first for window position)
+        self.settings = QSettings('AG95', 'pyFloatingHardwareStats')
+
         # these position coordinates will be used to keep the main window exactly where the user drags it
         # see the logic from move_window_to_fixed_position for details
-        self.dragged_x_pos = 0
-        self.dragged_y_pos = 0
+        self.dragged_x_pos = self.settings.value('window_x', 0, type=int)
+        self.dragged_y_pos = self.settings.value('window_y', 0, type=int)
 
         # first clear the exit flag by removing the exit file if it exists
-        # but also try to read the last window position on close
         if os.path.isfile(get_runtime_path('exit')):
-            try:
-                with open(get_runtime_path('exit'), 'r') as file_in_handle:
-                    last_position = json.load(file_in_handle)
-                    self.dragged_x_pos = last_position['dragged_x_pos']
-                    self.dragged_y_pos = last_position['dragged_y_pos']
-            except:
-                pass
-
             os.remove(get_runtime_path('exit'))
 
         # Set up the window properties
@@ -390,18 +385,14 @@ class DraggableWindow(QMainWindow):
         # Column definitions (index -> display name)
         self.column_names = ["CPU & RAM", "GPU (iGPU & dGPU)", "Network", "Disks", "Time & Date"]
 
-        # Load persisted settings
-        self.settings_path = get_runtime_path('settings.json')
-        self.disabled_columns = set()
-        self.show_seconds = True
-        try:
-            if os.path.isfile(self.settings_path):
-                with open(self.settings_path, 'r') as f:
-                    data = json.load(f)
-                self.disabled_columns = set(data.get('disabled_columns', []))
-                self.show_seconds = bool(data.get('show_seconds', True))
-        except Exception:
-            pass
+        # Load other persisted settings
+        disabled_columns_val = self.settings.value('disabled_columns')
+        if disabled_columns_val is None:
+            self.disabled_columns = set()
+        else:
+            # Handle QVariantList/QStringList from native format - convert to int
+            self.disabled_columns = set(int(v) for v in list(disabled_columns_val))
+        self.show_seconds = self.settings.value('show_seconds', True, type=bool)
 
         # Central widget and layout
         central_widget = QWidget(self)
@@ -478,12 +469,9 @@ class DraggableWindow(QMainWindow):
         self.apply_column_visibility()
 
     def save_settings(self):
-        try:
-            with open(self.settings_path, 'w') as f:
-                json.dump({'disabled_columns': sorted(self.disabled_columns),
-                           'show_seconds': self.show_seconds}, f)
-        except Exception:
-            pass
+        self.settings.setValue('disabled_columns', sorted(self.disabled_columns))
+        self.settings.setValue('show_seconds', self.show_seconds)
+        self.settings.sync()
 
     def apply_column_visibility(self):
         for col in range(5):
@@ -618,11 +606,12 @@ class DraggableWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent):
         # Custom logic to run when the window is closed
-        # Simply create an exit file which can be seen by all the threads so that they can close gracefully
-        # this file will contain the last known position of the main window
+        # Save window position to QSettings
+        self.settings.setValue('window_x', self.dragged_x_pos)
+        self.settings.setValue('window_y', self.dragged_y_pos)
+        # Create exit file for threads to detect shutdown
         with open(get_runtime_path('exit'), 'w') as file_out_handle:
-            json.dump({'dragged_x_pos': self.dragged_x_pos,
-                       'dragged_y_pos': self.dragged_y_pos}, file_out_handle)
+            file_out_handle.write('exit')
 
 # Run the application
 if __name__ == "__main__":
