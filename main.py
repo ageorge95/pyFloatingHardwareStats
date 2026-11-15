@@ -16,6 +16,7 @@ from threading import Thread
 from time import sleep
 from ag95 import red_green_from_range_value
 import sys
+from datetime import datetime
 import psutil
 import win32gui
 import win32con
@@ -265,17 +266,24 @@ class StatsUpdater(QThread):
             ram_percent = round((self.RAM_stats['ram_usage'] / self.RAM_stats['ram_total']) * 100, 1) if self.RAM_stats[
                                                                                                              'ram_total'] > 0 else 0
 
-            # Collect all the data points in a compact 4x4 grid.
+            now = datetime.now()
+            time_str = now.strftime("%H:%M:%S")
+            date_str = now.strftime("%d.%b.%y")
+
+            # Collect all the data points in a compact grid.
             # Labels are replaced by emojis to keep the floating window slim.
+            # The last column holds the current time (first row) and date (second row).
             rows = [
                 [f"⚙️{self.cpu_usage['cpu_percent']}% 🔥{self.libre_hw_mon['CPU_temp']}°",
                  f"🖥️{self.libre_hw_mon['iGPU_usage']}% 🌡️{self.libre_hw_mon['iGPU_temp']}°",
                  f"⬆️{self.libre_hw_mon['network_upload_speed']}M",
-                 f"💿{self.libre_hw_mon['disk1_activity']}% 📖{self.libre_hw_mon['disk1_read_speed']}M ✍️{self.libre_hw_mon['disk1_write_speed']}M"],
+                 f"💿{self.libre_hw_mon['disk1_activity']}% 📖{self.libre_hw_mon['disk1_read_speed']}M ✍️{self.libre_hw_mon['disk1_write_speed']}M",
+                 f"🕐{time_str}"],
                 [f"🧠{ram_percent}% 📦{self.RAM_stats['ram_usage']}G",
                  f"🎮{self.libre_hw_mon['dGPU_usage']}% 🌡️{self.libre_hw_mon['dGPU_temp']}°",
                  f"⬇️{self.libre_hw_mon['network_download_speed']}M",
-                 f"💿{self.libre_hw_mon['disk2_activity']}% 📖{self.libre_hw_mon['disk2_read_speed']}M ✍️{self.libre_hw_mon['disk2_write_speed']}M"]
+                 f"💿{self.libre_hw_mon['disk2_activity']}% 📖{self.libre_hw_mon['disk2_read_speed']}M ✍️{self.libre_hw_mon['disk2_write_speed']}M",
+                 f"📅{date_str}"]
             ]
 
             colors = [
@@ -289,7 +297,8 @@ class StatsUpdater(QThread):
                       red_green_from_range_value(self.libre_hw_mon['disk1_read_speed'], 0,
                                                 max(self.libre_hw_mon['disk1_read_speed_history_MBs'])),
                       red_green_from_range_value(self.libre_hw_mon['disk1_write_speed'], 0,
-                                                max(self.libre_hw_mon['disk1_write_speed_history_MBs']))), key=lambda c: c[0])],
+                                                max(self.libre_hw_mon['disk1_write_speed_history_MBs']))), key=lambda c: c[0]),
+                  (200, 200, 200)],
                 [red_green_from_range_value(self.RAM_stats['ram_usage'], 0, self.RAM_stats['ram_total']),
                  max((red_green_from_range_value(self.libre_hw_mon['dGPU_usage'], 0, 100),
                       red_green_from_range_value(self.libre_hw_mon['dGPU_temp'], 40, 90)), key=lambda c: c[0]),
@@ -299,7 +308,8 @@ class StatsUpdater(QThread):
                       red_green_from_range_value(self.libre_hw_mon['disk2_read_speed'], 0,
                                                 max(self.libre_hw_mon['disk2_read_speed_history_MBs'])),
                       red_green_from_range_value(self.libre_hw_mon['disk2_write_speed'], 0,
-                                                max(self.libre_hw_mon['disk2_write_speed_history_MBs']))), key=lambda c: c[0])]
+                                                max(self.libre_hw_mon['disk2_write_speed_history_MBs']))), key=lambda c: c[0]),
+                  (200, 200, 200)]
             ]
 
 
@@ -390,7 +400,7 @@ class DraggableWindow(QMainWindow):
         # the rows height could not be customized beyond certain limits
         self._cells = {}
         for row_index in range(2):  # 2 rows
-            for column_index in range(4):  # 4 columns
+            for column_index in range(5):  # 5 columns
                 label = QLabel(f"R{row_index}C{column_index}")
                 # the cells are stored with the <row_nr>_<col_nr> keys
                 self._cells[f'{row_index}_{column_index}'] = label
@@ -430,7 +440,7 @@ class DraggableWindow(QMainWindow):
         self.stats_updater.start()
 
     def update_table(self, rows, colors, changed):
-        # Data is structured as a 4x4 grid (list of rows)
+        # Data is structured as a 2x5 grid (list of rows)
         for r, (row_data, color_row, changed_row) in enumerate(zip(rows, colors, changed)):
             for c, (text, colour, changed_flag) in enumerate(zip(row_data, color_row, changed_row)):
                 if changed_flag:
