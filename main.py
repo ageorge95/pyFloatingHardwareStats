@@ -3,14 +3,18 @@ from PySide6.QtWidgets import (QApplication,
                                QFrame,
                                QLabel,
                                QGridLayout,
-                               QMainWindow)
+                               QMainWindow,
+                               QMenu)
 from PySide6.QtCore import (Qt,
                             QTimer,
                             Signal,
-                            QThread)
+                            QThread,
+                            QEvent,
+                            QPoint)
 from PySide6.QtGui import (QMouseEvent,
                            QIcon,
-                           QCloseEvent)
+                           QCloseEvent,
+                           QAction)
 import ctypes
 from threading import Thread
 from time import sleep
@@ -242,6 +246,9 @@ class StatsUpdater(QThread):
         self._last_rows = None
         self._last_colors = None
 
+        # whether to display seconds in the time cell
+        self.show_seconds = True
+
         self.cpu_usage = {'cpu_percent': 0}
         t_CPU = Thread(target=CPU_usage_updater, args=(self.cpu_usage,))
         t_CPU.start()
@@ -267,7 +274,10 @@ class StatsUpdater(QThread):
                                                                                                              'ram_total'] > 0 else 0
 
             now = datetime.now()
-            time_str = now.strftime("%H:%M:%S")
+            if getattr(self, 'show_seconds', True):
+                time_str = now.strftime("%H:%M:%S")
+            else:
+                time_str = now.strftime("%H:%M")
             date_str = now.strftime("%d.%b.%y")
 
             # Collect all the data points in a compact grid.
@@ -377,14 +387,33 @@ class DraggableWindow(QMainWindow):
         self.setWindowOpacity(0.8)  # 80% opaque
         self.setWindowIcon(QIcon(get_running_path(ICON_FILE)))
 
+        # Column definitions (index -> display name)
+        self.column_names = ["CPU & RAM", "GPU (iGPU & dGPU)", "Network", "Disks", "Time & Date"]
+
+        # Load persisted settings
+        self.settings_path = get_runtime_path('settings.json')
+        self.disabled_columns = set()
+        self.show_seconds = True
+        try:
+            if os.path.isfile(self.settings_path):
+                with open(self.settings_path, 'r') as f:
+                    data = json.load(f)
+                self.disabled_columns = set(data.get('disabled_columns', []))
+                self.show_seconds = bool(data.get('show_seconds', True))
+        except Exception:
+            pass
+
         # Central widget and layout
         central_widget = QWidget(self)
         self.setCentralWidget(central_widget)
+        central_widget.installEventFilter(self)
+        self.installEventFilter(self)
 
         # Create the main grid layout for labels
         grid_layout = QGridLayout(central_widget)
         grid_layout.setSpacing(1)
         grid_layout.setContentsMargins(0, 0, 0, 0)
+        self.grid_layout = grid_layout
 
         # Make the window draggable
         self.drag_frame = QFrame(self)
@@ -394,6 +423,7 @@ class DraggableWindow(QMainWindow):
         self.setMenuWidget(self.drag_frame)
         self.drag_frame.mousePressEvent = self.start_drag
         self.drag_frame.mouseMoveEvent = self.do_drag
+        self.drag_frame.installEventFilter(self)
 
         # Create a table-like visualization with labels
         # The previous implementation with QTableWidget was not ok as
@@ -412,8 +442,12 @@ class DraggableWindow(QMainWindow):
                                     "font-size: 11px; "
                                     "font-weight: bold;"
                                     )
+                # Allow the window to shrink below the text's minimum size hint
+                # when columns are hidden.
+                label.setMinimumSize(1, 1)
                 # Add label directly to the grid layout
                 grid_layout.addWidget(label, row_index, column_index)
+                label.installEventFilter(self)
 
         # Timer to keep the window always on top
         self.keep_on_top_timer = QTimer(self)
@@ -436,8 +470,90 @@ class DraggableWindow(QMainWindow):
 
         # Start the stats updater thread
         self.stats_updater = StatsUpdater()
+        self.stats_updater.show_seconds = self.show_seconds
         self.stats_updater.stats_updated.connect(self.update_table)
         self.stats_updater.start()
+
+        # Apply persisted column visibility
+        self.apply_column_visibility()
+
+    def save_settings(self):
+        try:
+            with open(self.settings_path, 'w') as f:
+                json.dump({'disabled_columns': sorted(self.disabled_columns),
+                           'show_seconds': self.show_seconds}, f)
+        except Exception:
+            pass
+
+    def apply_column_visibility(self):
+        for col in range(5):
+            visible = col not in self.disabled_columns
+            for row in range(2):
+                label = self._cells.get(f'{row}_{col}')
+                if not label:
+                    continue
+                if visible:
+                    label.show()
+                    self.grid_layout.addWidget(label, row, col)
+                else:
+                    self.grid_layout.removeWidget(label)
+                    label.hide()
+        # Let Qt's top-level auto-adjust handle resizing when cell text
+        # changes. Only force a resize here if columns were toggled at runtime
+        # (handled by callers) to ensure hidden columns free up space promptly.
+        pass
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.ContextMenu:
+            self.show_context_menu(event.globalPos())
+            return True
+        return super().eventFilter(obj, event)
+
+    def show_context_menu(self, global_pos):
+        menu = QMenu(self)
+        menu.setStyleSheet("QMenu { background-color: #2b2b2b; color: #f0f0f0; }"
+                           "QMenu::item:selected { background-color: #4a4a4a; color: #ffffff; }")
+        # Column enable/disable actions
+        for col in range(5):
+            action = QAction(self.column_names[col], menu)
+            action.setCheckable(True)
+            action.setChecked(col not in self.disabled_columns)
+            action.triggered.connect(lambda checked, c=col: self.toggle_column(c, checked))
+            menu.addAction(action)
+        menu.addSeparator()
+        seconds_action = QAction("Show seconds", menu)
+        seconds_action.setCheckable(True)
+        seconds_action.setChecked(self.show_seconds)
+        seconds_action.triggered.connect(self.toggle_seconds)
+        menu.addAction(seconds_action)
+        # Place the menu above the window's upper-left corner so it stays readable
+        # (the always-on-top main window would otherwise cover a menu shown in the middle)
+        anchor = self.mapToGlobal(self.rect().topLeft())
+        menu_pos = anchor - QPoint(0, menu.sizeHint().height())
+        menu.exec(menu_pos)
+
+    def toggle_column(self, col, enabled):
+        if enabled:
+            self.disabled_columns.discard(col)
+        else:
+            self.disabled_columns.add(col)
+        self.apply_column_visibility()
+        # Allow shrinking below any previously locked-in minimum size.
+        self.setMinimumSize(0, 0)
+        self.centralWidget().setMinimumSize(0, 0)
+        # Invalidate the layout so sizeHint() reflects the removed columns.
+        self.grid_layout.invalidate()
+        self.grid_layout.activate()
+        self.updateGeometry()
+        # Force the window to fit the remaining columns immediately.
+        self.resize(self.sizeHint())
+        self.save_settings()
+
+    def toggle_seconds(self, checked):
+        self.show_seconds = bool(checked)
+        if hasattr(self, 'stats_updater'):
+            self.stats_updater.show_seconds = self.show_seconds
+        self.save_settings()
 
     def update_table(self, rows, colors, changed):
         # Data is structured as a 2x5 grid (list of rows)
@@ -455,6 +571,15 @@ class DraggableWindow(QMainWindow):
                                             "font-size: 11px; "
                                             "font-weight: bold; "
                                             f"background-color: rgb({r_val}, {g_val}, {b_val});")
+        # Grow the window if content needs more space (never shrink here,
+        # shrinking is handled explicitly when columns are toggled).
+        try:
+            sh = self.sizeHint()
+            if self.width() < sh.width() or self.height() < sh.height():
+                self.resize(max(self.width(), sh.width()),
+                            max(self.height(), sh.height()))
+        except Exception:
+            pass
 
     def start_drag(self, event: QMouseEvent):
         # Record the current position of the window and mouse
@@ -500,9 +625,10 @@ class DraggableWindow(QMainWindow):
                        'dragged_y_pos': self.dragged_y_pos}, file_out_handle)
 
 # Run the application
-set_windows_app_id()
-app = QApplication(sys.argv)
-app.setWindowIcon(QIcon(get_running_path(ICON_FILE)))
-window = DraggableWindow()
-window.show()
-sys.exit(app.exec())
+if __name__ == "__main__":
+    set_windows_app_id()
+    app = QApplication(sys.argv)
+    app.setWindowIcon(QIcon(get_running_path(ICON_FILE)))
+    window = DraggableWindow()
+    window.show()
+    sys.exit(app.exec())
