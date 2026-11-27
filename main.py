@@ -13,10 +13,13 @@ from PySide6.QtCore import (Qt,
                             QEvent,
                             QPoint)
 from PySide6.QtGui import (QMouseEvent,
+                           QFont,
+                           QFontMetrics,
                            QIcon,
                            QCloseEvent,
                            QAction)
 import ctypes
+import calendar
 from threading import Thread
 from time import sleep
 from ag95 import red_green_from_range_value
@@ -285,15 +288,15 @@ class StatsUpdater(QThread):
             # Labels are replaced by emojis to keep the floating window slim.
             # The last column holds the current time (first row) and date (second row).
             rows = [
-                [f"⚙️{self.cpu_usage['cpu_percent']}% 🔥{self.libre_hw_mon['CPU_temp']}°",
-                 f"🖥️{self.libre_hw_mon['iGPU_usage']}% 🌡️{self.libre_hw_mon['iGPU_temp']}°",
-                 f"⬆️{self.libre_hw_mon['network_upload_speed']}M",
-                 f"💿{self.libre_hw_mon['disk1_activity']}% 📖{self.libre_hw_mon['disk1_read_speed']}M ✍️{self.libre_hw_mon['disk1_write_speed']}M",
+                [f"⚙️{fmt_pct(self.cpu_usage['cpu_percent'])}% 🔥{self.libre_hw_mon['CPU_temp']}°",
+                 f"🖥️{fmt_pct(self.libre_hw_mon['iGPU_usage'])}% 🌡️{self.libre_hw_mon['iGPU_temp']}°",
+                 f"⬆️{fmt_speed(self.libre_hw_mon['network_upload_speed'])}M",
+                 f"💿{fmt_pct(self.libre_hw_mon['disk1_activity'])}% 📖{fmt_speed(self.libre_hw_mon['disk1_read_speed'])}M ✍️{fmt_speed(self.libre_hw_mon['disk1_write_speed'])}M",
                  f"🕐{time_str}"],
-                [f"🧠{ram_percent}% 📦{self.RAM_stats['ram_usage']}G",
-                 f"🎮{self.libre_hw_mon['dGPU_usage']}% 🌡️{self.libre_hw_mon['dGPU_temp']}°",
-                 f"⬇️{self.libre_hw_mon['network_download_speed']}M",
-                 f"💿{self.libre_hw_mon['disk2_activity']}% 📖{self.libre_hw_mon['disk2_read_speed']}M ✍️{self.libre_hw_mon['disk2_write_speed']}M",
+                [f"🧠{fmt_pct(ram_percent)}% 📦{self.RAM_stats['ram_usage']:.1f}G",
+                 f"🎮{fmt_pct(self.libre_hw_mon['dGPU_usage'])}% 🌡️{self.libre_hw_mon['dGPU_temp']}°",
+                 f"⬇️{fmt_speed(self.libre_hw_mon['network_download_speed'])}M",
+                 f"💿{fmt_pct(self.libre_hw_mon['disk2_activity'])}% 📖{fmt_speed(self.libre_hw_mon['disk2_read_speed'])}M ✍️{fmt_speed(self.libre_hw_mon['disk2_write_speed'])}M",
                  f"📅{date_str}"]
             ]
 
@@ -357,6 +360,29 @@ def set_windows_app_id():
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
     except (AttributeError, OSError):
         pass
+
+def fmt_pct(value):
+    """Percentage as an integer."""
+    return f"{value:.0f}"
+
+
+def fmt_speed(value):
+    """1 decimal below 100, no decimals from 100 up."""
+    text = f"{value:.1f}"
+    return text if float(text) < 100 else f"{value:.0f}"
+
+
+def worst_case_texts(show_seconds: bool):
+    """Widest realistic text per column; the layout reserves exactly this much width."""
+    time_str = "🕐88:88:88" if show_seconds else "🕐88:88"
+    return [
+        ["⚙️100% 🔥100°", "🧠100% 📦999.9G"],
+        ["🖥️100% 🌡️100°", "🎮100% 🌡️100°"],
+        ["⬆️999M", "⬇️999M"],
+        ["💿100% 📖9999M ✍️9999M"],
+        [time_str] + [f"📅88.{m}.88" for m in calendar.month_abbr[1:]],
+    ]
+
 
 class DraggableWindow(QMainWindow):
     def __init__(self):
@@ -467,6 +493,25 @@ class DraggableWindow(QMainWindow):
 
         # Apply persisted column visibility
         self.apply_column_visibility()
+        self.apply_fixed_column_widths()
+        self.resize(self.sizeHint())
+
+    def apply_fixed_column_widths(self):
+        """Reserve each column's worst-case text width so the window width never changes."""
+        font = QFont("Arial")
+        font.setPixelSize(11)
+        font.setBold(True)
+        metrics = QFontMetrics(font)
+        for col, texts in enumerate(worst_case_texts(self.show_seconds)):
+            width = max(metrics.horizontalAdvance(t) for t in texts) + 2
+            for row in range(2):
+                label = self._cells.get(f'{row}_{col}')
+                if label:
+                    label.setMinimumWidth(width)
+        self.setMinimumSize(0, 0)
+        self.centralWidget().setMinimumSize(0, 0)
+        self.grid_layout.invalidate()
+        self.grid_layout.activate()
 
     def save_settings(self):
         self.settings.setValue('disabled_columns', sorted(self.disabled_columns))
@@ -541,6 +586,8 @@ class DraggableWindow(QMainWindow):
         self.show_seconds = bool(checked)
         if hasattr(self, 'stats_updater'):
             self.stats_updater.show_seconds = self.show_seconds
+        self.apply_fixed_column_widths()
+        self.resize(self.sizeHint())
         self.save_settings()
 
     def update_table(self, rows, colors, changed):
