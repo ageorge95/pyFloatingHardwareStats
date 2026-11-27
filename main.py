@@ -361,6 +361,47 @@ def set_windows_app_id():
     except (AttributeError, OSError):
         pass
 
+
+class _GUID(ctypes.Structure):
+    _fields_ = [('Data1', ctypes.c_ulong),
+                ('Data2', ctypes.c_ushort),
+                ('Data3', ctypes.c_ushort),
+                ('Data4', ctypes.c_ubyte * 8)]
+
+
+def _guid(text):
+    guid = _GUID()
+    ctypes.windll.ole32.CLSIDFromString(ctypes.c_wchar_p(text), ctypes.byref(guid))
+    return guid
+
+
+def add_taskbar_button(hwnd):
+    """Explicitly ask Explorer to show a taskbar button for hwnd (ITaskbarList::AddTab).
+    Explorer sometimes misses the button of this frameless topmost window at startup,
+    especially on slower machines. Calling it when the button already exists is harmless."""
+    if sys.platform != 'win32':
+        return
+    try:
+        ole32 = ctypes.windll.ole32
+        ole32.CoInitialize(None)
+        clsid_taskbar_list = _guid('{56FDF344-FD6D-11d0-958A-006097C9A090}')
+        iid_taskbar_list = _guid('{56FDF342-FD6D-11d0-958A-006097C9A090}')
+        taskbar_list = ctypes.c_void_p()
+        if ole32.CoCreateInstance(ctypes.byref(clsid_taskbar_list), None, 1,  # CLSCTX_INPROC_SERVER
+                                  ctypes.byref(iid_taskbar_list), ctypes.byref(taskbar_list)) != 0:
+            return
+        vtable = ctypes.cast(taskbar_list, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
+        release = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(vtable[2])
+        hr_init = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p)(vtable[3])
+        add_tab = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.c_void_p)(vtable[4])
+        try:
+            if hr_init(taskbar_list) == 0:
+                add_tab(taskbar_list, hwnd)
+        finally:
+            release(taskbar_list)
+    except (AttributeError, OSError, ValueError):
+        pass
+
 def fmt_pct(value):
     """Percentage as an integer."""
     return f"{value:.0f}"
@@ -667,4 +708,7 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = DraggableWindow()
     window.show()
+    # Re-assert the taskbar button a few times: on slow machines Explorer may not be ready at first show
+    for delay_ms in (500, 2000, 5000):
+        QTimer.singleShot(delay_ms, lambda: add_taskbar_button(int(window.winId())))
     sys.exit(app.exec())
