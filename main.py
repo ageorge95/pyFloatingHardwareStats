@@ -596,7 +596,8 @@ class DraggableWindow(QMainWindow):
     def ensure_window_above_taskbar(self):
         hwnd = self.winId()
         # Ensure the window stays on top of the taskbar
-        win32gui.SetWindowPos(hwnd, win32con.HWND_TOPMOST, 0, 0, 0, 0, win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
+        win32gui.SetWindowPos(hwnd, win32con.HWND_TOPMOST, 0, 0, 0, 0,
+                              win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE)
 
     def move_window_to_fixed_position(self):
         # move the window to its latest user position
@@ -617,7 +618,6 @@ class DraggableWindow(QMainWindow):
 if __name__ == "__main__":
     set_windows_app_id()
     app = QApplication(sys.argv)
-    app.setWindowIcon(QIcon(get_running_path(ICON_FILE)))
     window = DraggableWindow()
     window.show()
     sys.exit(app.exec())
